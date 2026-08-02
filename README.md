@@ -1,4 +1,9 @@
-# About
+# Emulite
+
+[![PyPI](https://img.shields.io/pypi/v/emulite)](https://pypi.org/project/emulite/)
+[![Python](https://img.shields.io/pypi/pyversions/emulite)](https://pypi.org/project/emulite/)
+
+## About
 
 Emulite is an emulation framework for Android native libraries, inspired by [Unidbg](https://github.com/zhkl0228/unidbg). iOS support is planned.
 
