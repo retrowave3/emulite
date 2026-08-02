@@ -23,11 +23,7 @@ class Sigaction32:
     @classmethod
     def read_from(cls, mem: object, address: int) -> "Sigaction32":
         # ARM32 kernel layout: flags@8, restorer@12 (offset 4 is sa_mask, skipped).
-        return cls(
-            handler=mem.read_u32(address),
-            flags=mem.read_u32(address + 8),
-            restorer=mem.read_u32(address + 12),
-        )
+        return cls(handler=mem.read_u32(address), flags=mem.read_u32(address + 8), restorer=mem.read_u32(address + 12))
 
     def write_to(self, mem: object, address: int) -> None:
         mem.write_u32(address, self.handler)

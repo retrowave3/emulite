@@ -71,10 +71,7 @@ class JavaCollections(JavaObject):
         # A custom Comparator is guest code the pure model can't invoke — sorting by natural order instead
         # would silently return a wrong ordering, so fail loud (route such calls through the handler).
         if comparator and comparator[0] is not None:
-            raise NotImplementedError(
-                "java.util.Collections.sort: a custom Comparator must be invoked via the JniHandler "
-                "(the pure model cannot run a guest Comparator)"
-            )
+            raise NotImplementedError("java.util.Collections.sort: a custom Comparator must be invoked via the JniHandler (the pure model cannot run a guest Comparator)")
         if hasattr(collection, "_items"):
             collection._items.sort(key=functools.cmp_to_key(JavaSupport.natural_compare))
         return None

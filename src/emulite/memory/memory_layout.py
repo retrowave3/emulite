@@ -4,9 +4,7 @@ class MemoryLayout:
     MMAP_BASE = 0x20000000  # anonymous mmap, grows up
     LIB_BASE = 0x40000000  # loaded modules placed from here, grows up
     RETURN_SENTINEL = 0x50000000  # emu.call sets LR here and stops when PC reaches it
-    POISON_BASE = (
-        0x5F000000  # never-mapped: unresolved STRONG symbols point here so a guest use faults
-    )
+    POISON_BASE = 0x5F000000  # never-mapped: unresolved STRONG symbols point here so a guest use faults
     TRAMPOLINE_BASE = 0x60000000  # svc #imm ; ret bridge slots
     JNIENV_BASE = 0x70000000  # JNIEnv function table
     JAVAVM_BASE = 0x70010000  # JavaVM function table

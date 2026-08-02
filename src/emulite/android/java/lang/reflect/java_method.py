@@ -14,14 +14,7 @@ from emulite.android.java.lang.reflect.java_executable import JavaExecutable
 class JavaMethod(JavaExecutable):
     JAVA_NAME: ClassVar[str] = "java/lang/reflect/Method"
 
-    def __init__(
-        self,
-        java_class: "JavaClass",
-        name: str,
-        signature: str,
-        is_static: bool,
-        native_addr: int = 0,
-    ):
+    def __init__(self, java_class: "JavaClass", name: str, signature: str, is_static: bool, native_addr: int = 0):
         super().__init__(java_class, name, signature, is_static)
         self.native_addr = native_addr
 

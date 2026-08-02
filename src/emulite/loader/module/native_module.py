@@ -26,9 +26,7 @@ class NativeModule:
     symbols: list[Symbol] = field(default_factory=list, repr=False, compare=False)
     dependencies: list[str] = field(default_factory=list)
     segments: list[tuple[int, int, int]] = field(default_factory=list)
-    import_relocations: list[tuple[int, str]] = field(
-        default_factory=list, repr=False, compare=False
-    )
+    import_relocations: list[tuple[int, str]] = field(default_factory=list, repr=False, compare=False)
     phdr_addr: int = 0
     phnum: int = 0
     dynamic_addr: int = 0
@@ -53,18 +51,10 @@ class NativeModule:
         return Symbol(name, addr) if addr is not None else None
 
     def get_symbols(self) -> list[Symbol]:
-        return (
-            list(self.symbols)
-            if self.symbols
-            else [Symbol(name, addr) for name, addr in self.exports.items()]
-        )
+        return list(self.symbols) if self.symbols else [Symbol(name, addr) for name, addr in self.exports.items()]
 
     def jni_methods(self) -> list[Symbol]:
-        return [
-            s
-            for s in self.get_symbols()
-            if s.name.startswith("Java_") and not s.undefined and s.address
-        ]
+        return [s for s in self.get_symbols() if s.name.startswith("Java_") and not s.undefined and s.address]
 
     def get_import_relocations(self) -> list[tuple[int, str]]:
         return list(self.import_relocations)
@@ -121,18 +111,14 @@ class NativeModule:
             raise SymbolMissing(f"symbol {name!r} not found in {self.name}")
         return self.emu.call(symbol, *args, **kwargs)
 
-    def disassemble(
-        self, offset: int, count: int = 1, thumb: bool | None = None
-    ) -> list[capstone.CsInsn]:
+    def disassemble(self, offset: int, count: int = 1, thumb: bool | None = None) -> list[capstone.CsInsn]:
         if self.emu is None:
             raise RuntimeError(f"{self.name} is not attached to an emulator; cannot disassemble")
         return self.emu.disassemble(self.base + offset, count, thumb)
 
     def _mem(self) -> "MemoryManager":
         if self.mem is None:
-            raise RuntimeError(
-                f"{self.name} has no memory back-reference; load it through an emulator"
-            )
+            raise RuntimeError(f"{self.name} has no memory back-reference; load it through an emulator")
         return self.mem
 
     @staticmethod
@@ -142,9 +128,7 @@ class NativeModule:
             tokens = text.split()
         else:
             if len(text) % 2:
-                raise ValueError(
-                    f"odd-length byte pattern (continuous form needs whole bytes): {pattern!r}"
-                )
+                raise ValueError(f"odd-length byte pattern (continuous form needs whole bytes): {pattern!r}")
             tokens = [text[i : i + 2] for i in range(0, len(text), 2)]
         parts = []
         for token in tokens:

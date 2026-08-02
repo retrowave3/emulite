@@ -46,9 +46,7 @@ class Backend(ABC):
     def mem_write(self, address: int, data: bytes) -> None: ...
 
     @abstractmethod
-    def hook_add(
-        self, hook_type: HookType, callback: Callable, begin: int = 1, end: int = 0
-    ) -> int:
+    def hook_add(self, hook_type: HookType, callback: Callable, begin: int = 1, end: int = 0) -> int:
         pass
 
     @abstractmethod

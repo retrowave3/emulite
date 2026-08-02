@@ -15,9 +15,7 @@ class AndroidPropertyArea:
 
     def __init__(self, mem: object):
         self._mem = mem
-        self._base = mem.mmap(
-            self._REGION_BYTES, perms=MemoryProtectionFlag.READ, label="properties"
-        )
+        self._base = mem.mmap(self._REGION_BYTES, perms=MemoryProtectionFlag.READ, label="properties")
         self._cursor = self._PA_DATA
         self._by_name: dict[str, int] = {}  # name -> prop_info*
         self._infos: set[int] = set()
@@ -78,18 +76,14 @@ class AndroidPropertyArea:
         self._mem.write_u32(self._base + bt + self.BT_NAMELEN, len(leaf))
         self._mem.write(self._base + bt + self.BT_NAME, leaf + b"\x00")
         info = self._align4(bt + self.BT_NAME + len(leaf) + 1)
-        self._mem.write_u32(
-            self._base + bt + self.BT_PROP, info
-        )  # prop_bt.prop = offset to the prop_info
+        self._mem.write_u32(self._base + bt + self.BT_PROP, info)  # prop_bt.prop = offset to the prop_info
         self._cursor = info
         return info
 
     def _advance(self, size: int) -> None:
         self._cursor = self._align8(self._cursor + size)
         if self._cursor >= self._REGION_BYTES:
-            raise MemoryError(
-                f"prop_info area exhausted at {self._cursor:#x} of {self._REGION_BYTES:#x}"
-            )
+            raise MemoryError(f"prop_info area exhausted at {self._cursor:#x} of {self._REGION_BYTES:#x}")
 
     @staticmethod
     def _align4(value: int) -> int:

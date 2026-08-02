@@ -59,17 +59,7 @@ class Tm64(PackedStruct):
 
     def pack(self) -> bytes:
         buf = bytearray(self.SIZE)
-        for offset, value in (
-            (0, self.sec),
-            (4, self.min),
-            (8, self.hour),
-            (12, self.mday),
-            (16, self.mon),
-            (20, self.year),
-            (24, self.wday),
-            (28, self.yday),
-            (32, self.isdst),
-        ):
+        for offset, value in ((0, self.sec), (4, self.min), (8, self.hour), (12, self.mday), (16, self.mon), (20, self.year), (24, self.wday), (28, self.yday), (32, self.isdst)):
             struct.pack_into("<i", buf, offset, value)
         struct.pack_into("<q", buf, 40, self.gmtoff)  # 4 bytes padding at 36
         struct.pack_into("<Q", buf, 48, self.zone)

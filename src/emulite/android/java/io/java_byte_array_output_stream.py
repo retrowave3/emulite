@@ -24,9 +24,7 @@ class JavaByteArrayOutputStream(JavaObject):
         if args and isinstance(args[0], int):  # write(int b) -> low 8 bits
             self.value.append(int(args[0]) & 0xFF)
             return None
-        data = (
-            args[0].value if args and isinstance(args[0], JavaObject) else b""
-        )  # write(byte[][, off, len])
+        data = args[0].value if args and isinstance(args[0], JavaObject) else b""  # write(byte[][, off, len])
         if len(args) == 3:
             off, length = int(args[1]), int(args[2])
             data = bytes(data)[off : off + length]

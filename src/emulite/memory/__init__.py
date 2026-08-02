@@ -5,14 +5,4 @@ from emulite.memory.memory_manager import MemoryManager
 from emulite.memory.memory_region import MemoryRegion
 from emulite.memory.native_pointer import NativePointer
 
-__all__ = [
-    "RW",
-    "RX",
-    "RWX",
-    "HeapAllocator",
-    "MemoryLayout",
-    "MemoryLayout32",
-    "MemoryManager",
-    "MemoryRegion",
-    "NativePointer",
-]
+__all__ = ["RW", "RX", "RWX", "HeapAllocator", "MemoryLayout", "MemoryLayout32", "MemoryManager", "MemoryRegion", "NativePointer"]

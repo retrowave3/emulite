@@ -7,14 +7,7 @@ from emulite.filesystem.structs.file_stat import FileStat
 
 
 class RegularFileIO(BufferBackedIO):
-    def __init__(
-        self,
-        path: str,
-        buffer: bytearray,
-        writable: bool,
-        oflags: OpenFlag = OpenFlag.O_RDONLY,
-        append: bool = False,
-    ):
+    def __init__(self, path: str, buffer: bytearray, writable: bool, oflags: OpenFlag = OpenFlag.O_RDONLY, append: bool = False):
         super().__init__(path, buffer, oflags)
         self._writable = writable
         self._append = append

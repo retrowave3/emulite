@@ -2,6 +2,8 @@ from enum import Enum
 
 
 class HookStatus(Enum):
+    """Choose whether a symbol or address replacement invokes its original body."""
+
     CALL_ORIGINAL = True
     SKIP_ORIGINAL = False
 

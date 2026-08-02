@@ -23,9 +23,7 @@ class NativePointer:
         return self.address != 0
 
     def __eq__(self, other: object) -> bool:
-        return (
-            int(self) == int(other) if isinstance(other, (NativePointer, int)) else NotImplemented
-        )
+        return int(self) == int(other) if isinstance(other, (NativePointer, int)) else NotImplemented
 
     def __hash__(self) -> int:
         return hash(self.address)
@@ -72,9 +70,7 @@ class NativePointer:
         return self._mem.read_double(self.address + offset)
 
     def read_pointer(self, offset: int = 0) -> "NativePointer":
-        return NativePointer(
-            self._mem, self._mem.read_ptr(self.address + offset)
-        )  # 8 bytes arm64, 4 arm32
+        return NativePointer(self._mem, self._mem.read_ptr(self.address + offset))  # 8 bytes arm64, 4 arm32
 
     def read_cstr(self, limit: int = CSTR_SCAN_LIMIT) -> str:
         return self._mem.read_cstr(self.address, limit)

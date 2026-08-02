@@ -68,6 +68,4 @@ class JavaDouble(JavaNumber):
 
     def hashCode(self) -> int:
         bits = self._bits(self.value)
-        return self._narrow(
-            bits ^ (bits >> 32), 32
-        )  # Double.hashCode(): (int)(bits ^ (bits >>> 32))
+        return self._narrow(bits ^ (bits >> 32), 32)  # Double.hashCode(): (int)(bits ^ (bits >>> 32))

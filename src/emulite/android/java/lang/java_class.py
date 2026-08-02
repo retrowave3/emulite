@@ -12,21 +12,9 @@ from emulite.android.java.lang.java_object import JavaObject
 class JavaClass(JavaObject):
     JAVA_NAME: ClassVar[str] = "java/lang/Class"
 
-    _PRIM_OF: ClassVar[dict[str, str]] = {
-        "V": "void",
-        "Z": "boolean",
-        "B": "byte",
-        "C": "char",
-        "S": "short",
-        "I": "int",
-        "J": "long",
-        "F": "float",
-        "D": "double",
-    }
+    _PRIM_OF: ClassVar[dict[str, str]] = {"V": "void", "Z": "boolean", "B": "byte", "C": "char", "S": "short", "I": "int", "J": "long", "F": "float", "D": "double"}
 
-    def __init__(
-        self, name: str = "java/lang/Object", backing: type | None = None, dvm: object | None = None
-    ):
+    def __init__(self, name: str = "java/lang/Object", backing: type | None = None, dvm: object | None = None):
         super().__init__()
         self.name = name
         self.backing = backing or JavaObject._REGISTRY.get(name)
@@ -34,11 +22,7 @@ class JavaClass(JavaObject):
         self._dvm = dvm
 
     def _resolve(self, name: str, backing: type | None = None) -> "JavaClass":
-        return (
-            self._dvm.class_for(name, backing)
-            if self._dvm is not None
-            else JavaClass(name, backing)
-        )
+        return self._dvm.class_for(name, backing) if self._dvm is not None else JavaClass(name, backing)
 
     @staticmethod
     def forName(name: object, *rest: object) -> "JavaClass":
@@ -105,17 +89,7 @@ class JavaClass(JavaObject):
         return self.name.startswith("[")
 
     def isPrimitive(self) -> bool:
-        return self.name in (
-            "void",
-            "boolean",
-            "byte",
-            "char",
-            "short",
-            "int",
-            "long",
-            "float",
-            "double",
-        )
+        return self.name in ("void", "boolean", "byte", "char", "short", "int", "long", "float", "double")
 
     def isEnum(self) -> bool:
         return False
@@ -137,9 +111,7 @@ class JavaClass(JavaObject):
 
     def _emu(self) -> object:
         if self._dvm is None or self._dvm.emu is None:
-            raise RuntimeError(
-                f"{self.name} is not bound to an emulator; obtain it via emu.java_class() / find_class()"
-            )
+            raise RuntimeError(f"{self.name} is not bound to an emulator; obtain it via emu.java_class() / find_class()")
         return self._dvm.emu
 
     @staticmethod

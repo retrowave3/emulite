@@ -40,14 +40,10 @@ class Arm32Arch(Arch):
         return self._BX_LR
 
     def enable_fpu(self, backend: Backend) -> None:
-        backend.reg_write(
-            Arm32Reg.C1_C0_2, backend.reg_read(Arm32Reg.C1_C0_2) | self._CPACR_CP10_CP11
-        )
+        backend.reg_write(Arm32Reg.C1_C0_2, backend.reg_read(Arm32Reg.C1_C0_2) | self._CPACR_CP10_CP11)
         backend.reg_write(Arm32Reg.FPEXC, backend.reg_read(Arm32Reg.FPEXC) | self._FPEXC_EN)
 
-    def setup_tls(
-        self, backend: Backend, mem: object, base: int, stack_guard: int, errno_addr: int
-    ) -> None:
+    def setup_tls(self, backend: Backend, mem: object, base: int, stack_guard: int, errno_addr: int) -> None:
         # bionic-32 TLS: 4-byte slots read via the read-only thread register (TPIDRURO = CP15 c13,c0,3).
         # Slot indices mirror bionic (SELF=0, THREAD_ID=1, STACK_GUARD=5, BIONIC_TLS=8 holding errno).
         mem.write_u32(base + 0 * 4, base)  # TLS_SLOT_SELF

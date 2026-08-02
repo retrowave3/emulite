@@ -22,11 +22,7 @@ class Sigaction64:
 
     @classmethod
     def read_from(cls, mem: object, address: int) -> "Sigaction64":
-        return cls(
-            handler=mem.read_u64(address),
-            flags=mem.read_u64(address + 8),
-            restorer=mem.read_u64(address + 16),
-        )
+        return cls(handler=mem.read_u64(address), flags=mem.read_u64(address + 8), restorer=mem.read_u64(address + 16))
 
     def write_to(self, mem: object, address: int) -> None:
         mem.write_u64(address, self.handler)

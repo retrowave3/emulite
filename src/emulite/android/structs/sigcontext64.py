@@ -25,16 +25,7 @@ class Sigcontext64:
     _PSTATE = _PC + 8
 
     @classmethod
-    def save(
-        cls,
-        mem: object,
-        uctx: int,
-        regs: "list[int]",
-        sp: int,
-        pc: int,
-        pstate: int,
-        fault_addr: int = 0,
-    ) -> None:
+    def save(cls, mem: object, uctx: int, regs: "list[int]", sp: int, pc: int, pstate: int, fault_addr: int = 0) -> None:
         mem.write_u64(uctx + cls._FAULT, fault_addr)
         for i in range(cls.NREGS):
             mem.write_u64(uctx + cls._REGS + i * 8, regs[i])

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class Unwinder:
-    def __init__(self, emu: "AndroidEmulatorBase"):
+    def __init__(self, emu: AndroidEmulatorBase) -> None:
         self._emu = emu
         self._pointer_size = emu.arch.pointer_size
         self._mask = (1 << (self._pointer_size * 8)) - 1
@@ -19,14 +19,17 @@ class Unwinder:
         self._read = emu.mem.read_u64 if self._pointer_size == 8 else emu.mem.read_u32
 
     def frames(self, max_depth: int = 64) -> list[Frame]:
+        """Return at most ``max_depth`` frames, including the current PC frame."""
+        if max_depth <= 0:
+            raise ValueError("backtrace max_depth must be positive")
         emu = self._emu
         regs = emu.arch.registers
         out = [Frame(0, emu.pc, emu.describe_address(emu.pc))]
         lr = emu.reg(regs.LR) & self._mask
-        if self._is_code(lr):
+        if len(out) < max_depth and self._is_code(lr):
             out.append(Frame(len(out), lr, emu.describe_address(lr)))
         fp = emu.reg(self._fp_reg) & self._mask
-        for _ in range(max_depth):
+        while len(out) < max_depth:
             if not fp or fp % self._pointer_size:
                 break
             try:
@@ -44,6 +47,4 @@ class Unwinder:
         return out
 
     def _is_code(self, address: int) -> bool:
-        return bool(address) and bool(
-            self._emu.mem.permission_at(address) & MemoryProtectionFlag.EXEC
-        )
+        return bool(address) and bool(self._emu.mem.permission_at(address) & MemoryProtectionFlag.EXEC)

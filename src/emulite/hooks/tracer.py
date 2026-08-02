@@ -1,31 +1,27 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import capstone
 
 from emulite.hooks.disassembler import Disassembler
 from emulite.hooks.trace_info import TraceInfo
+from emulite.hooks.types import TraceAction, TraceHook
 
 if TYPE_CHECKING:
     from emulite.android_emulator import AndroidEmulatorBase
 
 
 class Tracer:
-    def __init__(
-        self,
-        emu: "AndroidEmulatorBase",
-        callback: Callable[["AndroidEmulatorBase", TraceInfo], "bool | None"],
-        disassembler: "Disassembler",
-    ):
+    def __init__(self, emu: AndroidEmulatorBase, callback: TraceHook, disassembler: Disassembler) -> None:
         self._emu = emu
         self._callback = callback
         self._disasm = disassembler
-        self._pending: "TraceInfo | None" = None
+        self._pending: TraceInfo | None = None
         self._pending_written: list[str] = []
         self._stopped = False
 
-    def step(self, emu: "AndroidEmulatorBase", address: int, size: int) -> None:
+    def step(self, emu: AndroidEmulatorBase, address: int, size: int) -> None:
         if self._stopped:
             return
         self._finalize(emu)
@@ -54,15 +50,16 @@ class Tracer:
     def flush(self) -> None:
         self._finalize(self._emu)
 
-    def _finalize(self, emu: "AndroidEmulatorBase") -> None:
+    def _finalize(self, emu: AndroidEmulatorBase) -> None:
         if self._pending is None or self._stopped:
             return
         self._pending.output_registers = self._values(emu, self._pending_written)
         info, self._pending = self._pending, None
-        if self._callback(emu, info) is False:
+        result = self._callback(emu, info)
+        if result is False or result is TraceAction.STOP_TRACING:
             self._stopped = True
 
-    def _values(self, emu: "AndroidEmulatorBase", names: list[str]) -> dict[str, int]:
+    def _values(self, emu: AndroidEmulatorBase, names: list[str]) -> dict[str, int]:
         out: dict[str, int] = {}
         for name in names:
             spec = self._disasm.resolve(name)

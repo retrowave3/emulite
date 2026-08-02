@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import struct
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from emulite.android.enums.errno import Errno
 from emulite.common.errors import EmulatorCrashed, MissingSlot
@@ -20,39 +20,41 @@ class SvcTrap:
         self._arch = mem.arch
         self._reg = mem.arch.registers
         self._log = log
-        self._slots: list[tuple[Callable[[], Optional[int]], str] | None] = [None]
+        self._slots: list[tuple[Callable[[], int | None], str] | None] = [None]
         self._free_slots: list[int] = []
-        self._syscall: Optional[Callable[[], Optional[int]]] = None
+        self._syscall: Callable[[], int | None] | None = None
         self._base = MemoryLayout.TRAMPOLINE_BASE
         mem.map(self._base, MemoryLayout.PAGE_SIZE, RX, "trampolines")
         backend.hook_add(HookType.INTR, self._on_interrupt)
 
-    def set_syscall_handler(self, handler: Callable[[], Optional[int]]) -> None:
+    def set_syscall_handler(self, handler: Callable[[], int | None]) -> None:
         self._syscall = handler
 
-    def alloc_slot(self, handler: Callable[[], Optional[int]], name: str = "") -> int:
+    def alloc_slot(self, handler: Callable[[], int | None], name: str = "") -> int:
+        """Allocate a guest-callable trampoline for ``handler``."""
         if self._free_slots:
             imm = self._free_slots.pop()
             self._slots[imm] = (handler, name)
         else:
             imm = len(self._slots)
             if imm > self._MAX_SLOTS:
-                raise MissingSlot(
-                    f"trampoline page full ({self._MAX_SLOTS} slots) — free some via free_slot"
-                )
+                raise MissingSlot(f"trampoline page full ({self._MAX_SLOTS} slots) — free some via free_slot")
             self._slots.append((handler, name))
         addr = self._base + (imm - 1) * self._STRIDE
-        self._mem.write(
-            addr, struct.pack("<II", self._arch.encode_svc(imm), self._arch.ret_instruction)
-        )
+        self._mem.write(addr, struct.pack("<II", self._arch.encode_svc(imm), self._arch.ret_instruction))
         self._log.trap("slot #%d %s @ %#x", imm, name, addr)
         return addr
 
     def free_slot(self, addr: int) -> None:
-        imm = (addr - self._base) // self._STRIDE + 1
-        if 1 <= imm < len(self._slots) and self._slots[imm] is not None:
-            self._slots[imm] = None
-            self._free_slots.append(imm)
+        """Free a trampoline previously returned by :meth:`alloc_slot`."""
+        offset = addr - self._base
+        if offset < 0 or offset % self._STRIDE:
+            raise MissingSlot(f"invalid bridge slot address {addr:#x}")
+        imm = offset // self._STRIDE + 1
+        if not 1 <= imm < len(self._slots) or self._slots[imm] is None:
+            raise MissingSlot(f"bridge slot #{imm} at {addr:#x} is unallocated or already freed")
+        self._slots[imm] = None
+        self._free_slots.append(imm)
 
     def _on_interrupt(self, _uc: object, intno: int, _user: object = None) -> None:
         pc = self._be.reg_read(self._reg.PC)
@@ -69,4 +71,5 @@ class SvcTrap:
             result = slot[0]()
 
         if result is not None:
-            self._be.reg_write(self._reg.RET_REG, result & 0xFFFFFFFFFFFFFFFF)
+            mask = (1 << (self._arch.pointer_size * 8)) - 1
+            self._be.reg_write(self._reg.RET_REG, result & mask)

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import capstone
 
 
-@dataclass
+@dataclass(slots=True)
 class TraceInfo:
+    """An executed instruction with register values captured before and after it."""
+
     address: int
     code: bytes
     mnemonic: str
@@ -19,9 +21,10 @@ class TraceInfo:
     output_registers: dict[str, int] = field(default_factory=dict)
 
     def format(self, timestamp: bool = True) -> str:
+        """Render the instruction, optionally prefixed by the current local time."""
         parts = []
         if timestamp:
-            now = datetime.now()
+            now = datetime.now(timezone.utc).astimezone()
             parts.append(f"[{now:%H:%M:%S} {now.microsecond // 1000:03d}]")
         if self.module_name is not None:
             parts.append(f"[{self.module_name} 0x{self.module_offset:06x}]")
@@ -31,13 +34,9 @@ class TraceInfo:
         text = self.mnemonic + (f" {self.operand}" if self.operand else "")
         line = " ".join(parts) + f' 0x{self.address:x}: "{text}"'
         if self.input_registers:
-            line += " " + " ".join(
-                f"{name}=0x{value:x}" for name, value in self.input_registers.items()
-            )
+            line += " " + " ".join(f"{name}=0x{value:x}" for name, value in self.input_registers.items())
         if self.output_registers:
-            line += " => " + " ".join(
-                f"{name}=0x{value:x}" for name, value in self.output_registers.items()
-            )
+            line += " => " + " ".join(f"{name}=0x{value:x}" for name, value in self.output_registers.items())
         return line
 
     def __str__(self) -> str:

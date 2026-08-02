@@ -103,10 +103,4 @@ class JavaHashMap(JavaObject):
         return JavaHashSet(JavaMapEntry(k, v) for k, v in self._data.values())
 
     def toString(self) -> str:
-        return (
-            "{"
-            + ", ".join(
-                f"{JavaSupport.display(k)}={JavaSupport.display(v)}" for k, v in self._data.values()
-            )
-            + "}"
-        )
+        return "{" + ", ".join(f"{JavaSupport.display(k)}={JavaSupport.display(v)}" for k, v in self._data.values()) + "}"

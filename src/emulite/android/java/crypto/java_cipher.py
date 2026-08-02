@@ -28,9 +28,7 @@ class JavaCipher(JavaObject):
 
     @staticmethod
     def getInstance(transformation: object, *provider: object) -> "JavaCipher":
-        name = (
-            transformation.value if isinstance(transformation, JavaObject) else str(transformation)
-        )
+        name = transformation.value if isinstance(transformation, JavaObject) else str(transformation)
         return JavaCipher(name)
 
     def getAlgorithm(self) -> str:
@@ -41,11 +39,7 @@ class JavaCipher(JavaObject):
 
     def init(self, opmode: int, key: object, *params: object) -> None:
         self._opmode = int(opmode)
-        self._key = (
-            bytes(key.getEncoded().value)
-            if hasattr(key, "getEncoded")
-            else bytes(getattr(key, "value", b""))
-        )
+        self._key = bytes(key.getEncoded().value) if hasattr(key, "getEncoded") else bytes(getattr(key, "value", b""))
         self._iv = b""
         for spec in params:  # IvParameterSpec / GCMParameterSpec carry getIV()
             get_iv = getattr(spec, "getIV", None)

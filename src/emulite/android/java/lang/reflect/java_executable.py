@@ -31,10 +31,7 @@ class JavaExecutable(JavaAccessibleObject):
         return Modifier.PUBLIC | (Modifier.STATIC if self.is_static else 0)
 
     def getParameterTypes(self) -> list["JavaClass"]:
-        return [
-            JavaClass.class_of_descriptor(d)
-            for d in JavaClass.split_arg_descriptors(self.signature)
-        ]
+        return [JavaClass.class_of_descriptor(d) for d in JavaClass.split_arg_descriptors(self.signature)]
 
     def getParameterCount(self) -> int:
         return len(JavaClass.split_arg_descriptors(self.signature))

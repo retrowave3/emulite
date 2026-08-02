@@ -25,7 +25,5 @@ class Symbol:
 
     __radd__ = __add__
 
-    def __format__(
-        self, spec: str
-    ) -> str:  # f"{sym:#x}" formats the address; f"{sym}" stays the repr
+    def __format__(self, spec: str) -> str:  # f"{sym:#x}" formats the address; f"{sym}" stays the repr
         return format(self.address, spec) if spec else str(self)

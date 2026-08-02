@@ -49,11 +49,7 @@ class JavaOptional(JavaObject):
     def equals(self, other: object) -> bool:
         # Java Optional.equals delegates to the contained values' equals(), not Python identity — two
         # Optionals wrapping equal-but-distinct values must compare equal.
-        return (
-            isinstance(other, JavaOptional)
-            and other._present == self._present
-            and (not self._present or JavaSupport.java_equals(self._value, other._value))
-        )
+        return isinstance(other, JavaOptional) and other._present == self._present and (not self._present or JavaSupport.java_equals(self._value, other._value))
 
     def toString(self) -> str:
         return f"Optional[{self._value}]" if self._present else "Optional.empty"

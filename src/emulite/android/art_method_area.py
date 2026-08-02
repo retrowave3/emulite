@@ -12,22 +12,11 @@ class ArtMethodArea:
         self._base = mem.mmap(self._REGION_BYTES, perms=RW, label="art-methods")
         self._cursor = 0
 
-    def create(
-        self,
-        *,
-        declaring_class: int,
-        access_flags: int,
-        dex_index: int,
-        method_index: int,
-        data: int,
-        entry: int,
-    ) -> int:
+    def create(self, *, declaring_class: int, access_flags: int, dex_index: int, method_index: int, data: int, entry: int) -> int:
         ptr = self._base + self._cursor
         self._cursor += self.SIZE
         if self._cursor > self._REGION_BYTES:
-            raise MemoryError(
-                f"ArtMethod area exhausted at {self._cursor:#x} of {self._REGION_BYTES:#x}"
-            )
+            raise MemoryError(f"ArtMethod area exhausted at {self._cursor:#x} of {self._REGION_BYTES:#x}")
         self._mem.write_u32(ptr + self.DECLARING_CLASS, declaring_class & 0xFFFFFFFF)
         self._mem.write_u32(ptr + self.ACCESS_FLAGS, access_flags & 0xFFFFFFFF)
         self._mem.write_u32(ptr + self.DEX_METHOD_INDEX, dex_index & 0xFFFFFFFF)

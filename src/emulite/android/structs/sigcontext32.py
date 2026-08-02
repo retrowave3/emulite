@@ -38,9 +38,7 @@ class Sigcontext32:
     _FAULT = UC_MCONTEXT + 80
 
     @classmethod
-    def save(
-        cls, mem: object, uctx: int, regs: "list[int]", cpsr: int, fault_addr: int = 0
-    ) -> None:
+    def save(cls, mem: object, uctx: int, regs: "list[int]", cpsr: int, fault_addr: int = 0) -> None:
         for i in range(cls.NREGS):
             mem.write_u32(uctx + cls._REGS + i * 4, regs[i])
         mem.write_u32(uctx + cls._CPSR, cpsr)

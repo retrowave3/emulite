@@ -35,52 +35,13 @@ if TYPE_CHECKING:
 
 class AndroidFileSystem:
     _REG_MODE, _CHR_MODE, _DIR_MODE = FileStat.REG_MODE, FileStat.CHR_MODE, FileStat.DIR_MODE
-    _DEV_RDEV = {
-        "urandom": 265,
-        "random": 264,
-        "null": 259,
-        "zero": 261,
-        "ashmem": 2615,
-        "binder": 2616,
-        "tty": 1280,
-    }
+    _DEV_RDEV = {"urandom": 265, "random": 264, "null": 259, "zero": 261, "ashmem": 2615, "binder": 2616, "tty": 1280}
     _KNOWN_DIRS = ("/proc", "/proc/self", "/proc/self/fd", "/proc/self/task", "/proc/net", "/dev")
-    _DIR_INO = {
-        "fd": 100000,
-        "dev": 200000,
-        "self": 300000,
-        "task": 310000,
-        "proc": 400000,
-        "net": 500000,
-        "host": 600000,
-    }
-    _ANON_NAMES = {
-        "malloc-arena": "[anon:libc_malloc]",
-        "tls": "[anon:bionic_tls]",
-        "heap": "[heap]",
-        "art-methods": "[anon:dalvik-LinearAlloc]",
-    }
+    _DIR_INO = {"fd": 100000, "dev": 200000, "self": 300000, "task": 310000, "proc": 400000, "net": 500000, "host": 600000}
+    _ANON_NAMES = {"malloc-arena": "[anon:libc_malloc]", "tls": "[anon:bionic_tls]", "heap": "[heap]", "art-methods": "[anon:dalvik-LinearAlloc]"}
     _DEV_BACKED = {"properties": ("/dev/__properties__/u:object_r:default_prop:s0", "00:0d", 1596)}
-    _HIDDEN_REGIONS = frozenset(
-        {
-            "trampolines",
-            "JNIEnv",
-            "JavaVM",
-            "dl_phdr_info",
-            "r_debug",
-            "link_map",
-            "main-exe",
-            "linker64",
-            "linker",
-        }
-    )
-    _ANON_FD_LINK = {
-        "<eventfd>": "anon_inode:[eventfd]",
-        "<epoll>": "anon_inode:[eventpoll]",
-        "<stdin>": "/dev/null",
-        "<stdout>": "/dev/null",
-        "<stderr>": "/dev/null",
-    }
+    _HIDDEN_REGIONS = frozenset({"trampolines", "JNIEnv", "JavaVM", "dl_phdr_info", "r_debug", "link_map", "main-exe", "linker64", "linker"})
+    _ANON_FD_LINK = {"<eventfd>": "anon_inode:[eventfd]", "<epoll>": "anon_inode:[eventpoll]", "<stdin>": "/dev/null", "<stdout>": "/dev/null", "<stderr>": "/dev/null"}
 
     def __init__(self, rootfs: str | None, emu: "AndroidEmulatorBase"):
         self._rootfs = os.path.realpath(rootfs) if rootfs else None
@@ -137,9 +98,7 @@ class AndroidFileSystem:
 
     def open(self, path: str, flags: int) -> int:
         norm = self._canonical(self._normalize(path))
-        writable = (flags & (OpenFlag.O_WRONLY | OpenFlag.O_RDWR)) != 0 or (
-            flags & OpenFlag.O_CREAT
-        ) != 0
+        writable = (flags & (OpenFlag.O_WRONLY | OpenFlag.O_RDWR)) != 0 or (flags & OpenFlag.O_CREAT) != 0
         append = bool(flags & OpenFlag.O_APPEND)
         if flags & OpenFlag.O_CREAT:
             self._deleted.discard(norm)
@@ -165,32 +124,18 @@ class AndroidFileSystem:
     def _make_handle(self, norm: str, flags: int, writable: bool, append: bool) -> "FileIO | int":
         if norm in self._devices:
             kind = self._devices[norm]
-            return (
-                AshmemIO()
-                if kind == "ashmem"
-                else TtyIO(norm)
-                if kind == "tty"
-                else DeviceIO(norm, kind, self._DEV_RDEV[kind])
-            )
+            return AshmemIO() if kind == "ashmem" else TtyIO(norm) if kind == "tty" else DeviceIO(norm, kind, self._DEV_RDEV[kind])
         if norm in self._overlay:
             return RegularFileIO(norm, self._overlay[norm], writable, flags, append)
         if norm in self._providers:
             return RegularFileIO(norm, bytearray(self._providers[norm]()), writable=False)
         host = self._host_path(norm)
         if host is not None and writable:
-            return RegularFileIO(
-                norm,
-                self._overlay.setdefault(norm, bytearray(self._read_host(host))),
-                True,
-                flags,
-                append,
-            )
+            return RegularFileIO(norm, self._overlay.setdefault(norm, bytearray(self._read_host(host))), True, flags, append)
         if host is not None:
             return RegularFileIO(norm, bytearray(self._read_host(host)), writable=False)
         if flags & OpenFlag.O_CREAT:
-            return RegularFileIO(
-                norm, self._overlay.setdefault(norm, bytearray()), True, flags, append
-            )
+            return RegularFileIO(norm, self._overlay.setdefault(norm, bytearray()), True, flags, append)
         self._log.vfs("open(%r) => -ENOENT", norm, level=LogLevel.WARN)
         return -Errno.ENOENT
 
@@ -221,9 +166,7 @@ class AndroidFileSystem:
 
     def pipe(self) -> tuple[int, int]:
         fifo = bytearray()
-        return self._install(PipeIO(fifo, readable=True)), self._install(
-            PipeIO(fifo, readable=False)
-        )
+        return self._install(PipeIO(fifo, readable=True)), self._install(PipeIO(fifo, readable=False))
 
     def eventfd(self, initval: int, semaphore: bool) -> int:
         return self._install(EventFdIO(initval, semaphore))
@@ -370,27 +313,15 @@ class AndroidFileSystem:
 
     def _is_dir(self, norm: str) -> bool:
         norm = self._canonical(norm)
-        if (
-            norm == "/"
-            or norm in self._KNOWN_DIRS
-            or norm in self._made_dirs
-            or self._host_dir(norm) is not None
-        ):
+        if norm == "/" or norm in self._KNOWN_DIRS or norm in self._made_dirs or self._host_dir(norm) is not None:
             return True
         prefix = norm.rstrip("/") + "/"
-        virtual_paths = itertools.chain(
-            self._providers, self._overlay, self._devices, self._symlinks
-        )
+        virtual_paths = itertools.chain(self._providers, self._overlay, self._devices, self._symlinks)
         return any(path.startswith(prefix) for path in virtual_paths)
 
     def mkdir(self, path: str, mode: int = 0x1FF) -> int:
         norm = self._normalize(path)
-        if (
-            self._is_dir(norm)
-            or norm in self._providers
-            or norm in self._overlay
-            or self._host_path(norm)
-        ):
+        if self._is_dir(norm) or norm in self._providers or norm in self._overlay or self._host_path(norm):
             return -Errno.EEXIST
         parent = posixpath.dirname(norm)
         if parent != "/" and not self._is_dir(parent):
@@ -407,44 +338,15 @@ class AndroidFileSystem:
         if norm == "/proc/self/task":
             return dot + [(ino["task"], DirentType.DT_DIR, str(self._emu.profile.process_tid))]
         if norm == "/dev":
-            return dot + [
-                (ino["dev"] + i, DirentType.DT_CHR, name[len("/dev/") :])
-                for i, name in enumerate(sorted(self._devices))
-            ]
+            return dot + [(ino["dev"] + i, DirentType.DT_CHR, name[len("/dev/") :]) for i, name in enumerate(sorted(self._devices))]
         if norm == "/proc/self":
-            names = sorted(
-                {
-                    p[len("/proc/self/") :].split("/")[0]
-                    for p in self._providers
-                    if p.startswith("/proc/self/")
-                }
-                | {"fd", "task"}
-            )
-            return dot + [
-                (
-                    ino["self"] + i,
-                    DirentType.DT_DIR if self._is_dir(f"/proc/self/{n}") else DirentType.DT_REG,
-                    n,
-                )
-                for i, n in enumerate(names)
-            ]
+            names = sorted({p[len("/proc/self/") :].split("/")[0] for p in self._providers if p.startswith("/proc/self/")} | {"fd", "task"})
+            return dot + [(ino["self"] + i, DirentType.DT_DIR if self._is_dir(f"/proc/self/{n}") else DirentType.DT_REG, n) for i, n in enumerate(names)]
         if norm == "/proc":
-            top = sorted(
-                {p[len("/proc/") :].split("/")[0] for p in self._providers} | {"self", "net"}
-            )
-            return dot + [
-                (
-                    ino["proc"] + i,
-                    DirentType.DT_DIR if self._is_dir(f"/proc/{n}") else DirentType.DT_REG,
-                    n,
-                )
-                for i, n in enumerate(top)
-            ]
+            top = sorted({p[len("/proc/") :].split("/")[0] for p in self._providers} | {"self", "net"})
+            return dot + [(ino["proc"] + i, DirentType.DT_DIR if self._is_dir(f"/proc/{n}") else DirentType.DT_REG, n) for i, n in enumerate(top)]
         if norm == "/proc/net":
-            return dot + [
-                (ino["net"], DirentType.DT_REG, "tcp"),
-                (ino["net"] + 1, DirentType.DT_REG, "tcp6"),
-            ]
+            return dot + [(ino["net"], DirentType.DT_REG, "tcp"), (ino["net"] + 1, DirentType.DT_REG, "tcp6")]
         host = self._host_dir(norm)
         if host is None and not self._is_dir(norm):
             return None
@@ -452,22 +354,12 @@ class AndroidFileSystem:
         if host is not None:
             for name in sorted(os.listdir(host)):
                 full = os.path.join(host, name)
-                dtype = (
-                    DirentType.DT_DIR
-                    if os.path.isdir(full)
-                    else (DirentType.DT_LNK if os.path.islink(full) else DirentType.DT_REG)
-                )
+                dtype = DirentType.DT_DIR if os.path.isdir(full) else (DirentType.DT_LNK if os.path.islink(full) else DirentType.DT_REG)
                 entries.append((ino, dtype, name))
                 seen.add(name)
                 ino += 1
         prefix = norm.rstrip("/") + "/"
-        virtual_paths = (
-            set(self._providers)
-            | set(self._overlay)
-            | self._made_dirs
-            | set(self._devices)
-            | set(self._symlinks)
-        )
+        virtual_paths = set(self._providers) | set(self._overlay) | self._made_dirs | set(self._devices) | set(self._symlinks)
         for path in sorted(virtual_paths):
             if not path.startswith(prefix):
                 continue
@@ -511,11 +403,7 @@ class AndroidFileSystem:
         if path and path.startswith("/"):
             uid, gid, ino = self._path_identity(self._canonical(self._normalize(path)))
         else:
-            uid, gid, ino = (
-                self._emu.profile.process_uid,
-                self._emu.profile.process_gid,
-                self._anon_inode(handle),
-            )
+            uid, gid, ino = (self._emu.profile.process_uid, self._emu.profile.process_gid, self._anon_inode(handle))
         return StatResult(stat.mode, stat.size, stat.rdev, uid, gid, ino)
 
     def stat_path(self, path: str) -> "StatResult | None":
@@ -545,38 +433,13 @@ class AndroidFileSystem:
 
     def _app_roots(self) -> "tuple[str, ...]":
         p = self._emu.profile
-        return tuple(
-            r
-            for r in (
-                p.data_dir,
-                f"/data/data/{p.package_name}",
-                f"/data/app/{p.package_name}",
-                p.external_files_dir,
-            )
-            if r
-        )
+        return tuple(r for r in (p.data_dir, f"/data/data/{p.package_name}", f"/data/app/{p.package_name}", p.external_files_dir) if r)
 
     def _app_directories(self) -> "set[str]":
         p = self._emu.profile
-        dirs = {
-            "/data",
-            "/data/user",
-            "/data/user/0",
-            "/data/data",
-            "/data/app",
-            "/sdcard",
-            "/sdcard/Android",
-            "/sdcard/Android/data",
-        }
+        dirs = {"/data", "/data/user", "/data/user/0", "/data/data", "/data/app", "/sdcard", "/sdcard/Android", "/sdcard/Android/data"}
         for base in (p.data_dir, f"/data/data/{p.package_name}"):
-            dirs |= {
-                base,
-                f"{base}/files",
-                f"{base}/cache",
-                f"{base}/code_cache",
-                f"{base}/shared_prefs",
-                f"{base}/databases",
-            }
+            dirs |= {base, f"{base}/files", f"{base}/cache", f"{base}/code_cache", f"{base}/shared_prefs", f"{base}/databases"}
         app_root = f"/data/app/{p.package_name}"
         dirs |= {app_root, f"{app_root}/lib", p.native_lib_dir, p.external_files_dir}
         return {self._normalize(d) for d in dirs if d}
@@ -666,27 +529,17 @@ class AndroidFileSystem:
             inode = 200000 + index
             dev = "fd:03" if "/data/" in self.device_path(module) else "07:08"
             for start, size, perms in module.segments:
-                entries.append(
-                    (start, size, perms, start - module.base, dev, inode, self.device_path(module))
-                )
+                entries.append((start, size, perms, start - module.base, dev, inode, self.device_path(module)))
         for region in self._emu.mem.iter_regions():
-            if (
-                region.label.endswith(" LOAD")
-                or region.label == "stack"
-                or region.label in self._HIDDEN_REGIONS
-            ):
+            if region.label.endswith(" LOAD") or region.label == "stack" or region.label in self._HIDDEN_REGIONS:
                 continue
             if region.label in self._DEV_BACKED:
                 name, dev, inode = self._DEV_BACKED[region.label]
             else:
                 name, dev, inode = self._ANON_NAMES.get(region.label, ""), "00:00", 0
-            entries.append(
-                (region.base, region.end - region.base, int(region.perms), 0, dev, inode, name)
-            )
+            entries.append((region.base, region.end - region.base, int(region.perms), 0, dev, inode, name))
         layout = self._emu.arch.layout
-        entries.append(
-            (layout.STACK_TOP - layout.STACK_SIZE, layout.STACK_SIZE, rw, 0, "00:00", 0, "[stack]")
-        )
+        entries.append((layout.STACK_TOP - layout.STACK_SIZE, layout.STACK_SIZE, rw, 0, "00:00", 0, "[stack]"))
         entries.sort(key=lambda entry: entry[0])
         return entries
 
@@ -701,11 +554,7 @@ class AndroidFileSystem:
             kb = size // 1024
             rss = kb if perms & MemoryProtectionFlag.READ else 0
             dirty = kb if perms & MemoryProtectionFlag.WRITE else 0
-            flags = (
-                "rd"
-                + (" wr" if perms & MemoryProtectionFlag.WRITE else "")
-                + (" ex" if perms & MemoryProtectionFlag.EXEC else "")
-            )
+            flags = "rd" + (" wr" if perms & MemoryProtectionFlag.WRITE else "") + (" ex" if perms & MemoryProtectionFlag.EXEC else "")
             lines += [
                 f"Size:{kb:>19} kB",
                 "KernelPageSize:        4 kB",
@@ -722,15 +571,8 @@ class AndroidFileSystem:
         return ("\n".join(lines) + "\n").encode()
 
     @staticmethod
-    def _maps_line(
-        start: int, size: int, perms: int, offset: int, dev: str, inode: int, name: str
-    ) -> str:
-        flags = (
-            ("r" if perms & MemoryProtectionFlag.READ else "-")
-            + ("w" if perms & MemoryProtectionFlag.WRITE else "-")
-            + ("x" if perms & MemoryProtectionFlag.EXEC else "-")
-            + "p"
-        )
+    def _maps_line(start: int, size: int, perms: int, offset: int, dev: str, inode: int, name: str) -> str:
+        flags = ("r" if perms & MemoryProtectionFlag.READ else "-") + ("w" if perms & MemoryProtectionFlag.WRITE else "-") + ("x" if perms & MemoryProtectionFlag.EXEC else "-") + "p"
         return f"{start:08x}-{start + size:08x} {flags} {offset:08x} {dev} {inode:<11} {name}"
 
     def _mapped_kb(self) -> int:
@@ -819,11 +661,7 @@ class AndroidFileSystem:
     def _proc_cgroup(self) -> bytes:
         pkg = self._emu.profile.package_name
         return (
-            (
-                f"5:cpuacct:/uid_{self._emu.profile.process_uid}/pid_{self._emu.profile.process_pid}\n"
-                f"2:cpu:/\n"
-                f"0::/uid_{self._emu.profile.process_uid}/pid_{self._emu.profile.process_pid}\n"
-            ).encode()
+            (f"5:cpuacct:/uid_{self._emu.profile.process_uid}/pid_{self._emu.profile.process_pid}\n2:cpu:/\n0::/uid_{self._emu.profile.process_uid}/pid_{self._emu.profile.process_pid}\n").encode()
             if pkg
             else b""
         )
@@ -842,10 +680,7 @@ class AndroidFileSystem:
         ).encode()
 
     def _proc_net_tcp(self, _family: int) -> bytes:
-        return (
-            "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid\n"
-            "   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000\n"
-        ).encode()
+        return ("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid\n   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000\n").encode()
 
     def _proc_cpuinfo(self) -> bytes:
         d = self._emu.device
@@ -901,6 +736,4 @@ class AndroidFileSystem:
         host = d.get("ro.build.host", "abfarm")
         release = d.get("ro.kernel.osrelease", "5.10.0")
         version = d.get("ro.kernel.version", "#1 SMP")
-        return (
-            f"Linux version {release} ({user}@{host}) (Android clang version 14.0.7) {version}\n"
-        ).encode()
+        return (f"Linux version {release} ({user}@{host}) (Android clang version 14.0.7) {version}\n").encode()

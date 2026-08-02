@@ -20,7 +20,4 @@ class JavaConstructor(JavaExecutable):
         return self.java_class.getName()  # Constructor.getName() is the declaring class name
 
     def newInstance(self, *args: object) -> object:
-        raise NotImplementedError(
-            f"java.lang.reflect.Constructor.newInstance on {self.java_class.name} — "
-            f"reflective construction must go through the emulator/JniHandler, not the static model"
-        )
+        raise NotImplementedError(f"java.lang.reflect.Constructor.newInstance on {self.java_class.name} — reflective construction must go through the emulator/JniHandler, not the static model")

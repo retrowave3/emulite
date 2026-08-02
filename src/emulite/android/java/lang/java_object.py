@@ -28,12 +28,8 @@ class JavaObject:
     def getClass(self) -> "JavaClass":
         java_class = JavaObject._REGISTRY["java/lang/Class"]
         if type(self) is JavaObject:  # a generic/proxied object reports its stored class
-            return (
-                self.java_class if self.java_class is not None else java_class("java/lang/Object")
-            )
-        return java_class(
-            self.JAVA_NAME, backing=type(self)
-        )  # a modelled type reports its own class
+            return self.java_class if self.java_class is not None else java_class("java/lang/Object")
+        return java_class(self.JAVA_NAME, backing=type(self))  # a modelled type reports its own class
 
     def hashCode(self) -> int:
         return id(self) & 0x7FFFFFFF  # identity hash masked to a positive jint
@@ -60,6 +56,4 @@ class JavaObject:
         return None  # single-threaded: nothing ever notifies us
 
 
-JavaObject._REGISTRY["java/lang/Object"] = (
-    JavaObject  # the root isn't its own subclass, so register it here
-)
+JavaObject._REGISTRY["java/lang/Object"] = JavaObject  # the root isn't its own subclass, so register it here

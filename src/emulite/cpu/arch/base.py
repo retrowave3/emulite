@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from emulite.cpu.arch.register_namespace import RegisterNamespace
 from emulite.cpu.backend import Backend, CpuArch
 
 
@@ -11,7 +12,7 @@ class Arch(ABC):
     cpu_arch: CpuArch  # which ISA the backend runs (mapped to the engine's own selectors)
     platform_string: str  # the AT_PLATFORM string placed on the initial stack ("aarch64")
     uname_machine: str  # utsname.machine — the execution state ("aarch64" / "armv8l"), not the ABI
-    registers: type  # the register namespace (Arm64Reg) — arg/ret/syscall groupings live on it
+    registers: type[RegisterNamespace]
     layout: type  # the MemoryLayout subtype: the guest address map for this arch
     frame_pointer: int  # the frame-pointer register id (x29 on arm64, r11 on arm32) — for the FP-chain unwinder
 
@@ -44,7 +45,5 @@ class Arch(ABC):
         return None
 
     @abstractmethod
-    def setup_tls(
-        self, backend: Backend, mem: object, base: int, stack_guard: int, errno_addr: int
-    ) -> None:
+    def setup_tls(self, backend: Backend, mem: object, base: int, stack_guard: int, errno_addr: int) -> None:
         pass

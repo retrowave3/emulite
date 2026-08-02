@@ -193,9 +193,7 @@ class AndroidDevice:
         if not self.exists(name):
             return 0
         if self._props is None:
-            raise RuntimeError(
-                "AndroidDevice.find requires guest memory; bind_memory() was never called"
-            )
+            raise RuntimeError("AndroidDevice.find requires guest memory; bind_memory() was never called")
         return self._props.intern(name, self.getprop(name))
 
     def name_value(self, info: int) -> tuple[str, str] | None:
@@ -229,19 +227,8 @@ class AndroidDevice:
         return None
 
     def _fingerprint(self) -> str:
-        keys = (
-            "ro.product.brand",
-            "ro.product.name",
-            "ro.product.device",
-            "ro.build.version.release",
-            "ro.build.id",
-            "ro.build.version.incremental",
-            "ro.build.type",
-            "ro.build.tags",
-        )
-        brand, name, device, release, build_id, incremental, build_type, tags = (
-            self.getprop(key) for key in keys
-        )
+        keys = ("ro.product.brand", "ro.product.name", "ro.product.device", "ro.build.version.release", "ro.build.id", "ro.build.version.incremental", "ro.build.type", "ro.build.tags")
+        brand, name, device, release, build_id, incremental, build_type, tags = (self.getprop(key) for key in keys)
         if not (brand and device and build_id):
             return ""
         return f"{brand}/{name}/{device}:{release}/{build_id}/{incremental}:{build_type}/{tags}"

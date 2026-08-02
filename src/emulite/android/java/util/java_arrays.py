@@ -18,16 +18,7 @@ from emulite.android.java.util.java_array_list import JavaArrayList
 class JavaArrays(JavaObject):
     JAVA_NAME: ClassVar[str] = "java/util/Arrays"
 
-    _CODEC: ClassVar[dict] = {
-        "Z": "<B",
-        "B": "<b",
-        "C": "<H",
-        "S": "<h",
-        "I": "<i",
-        "J": "<q",
-        "F": "<f",
-        "D": "<d",
-    }
+    _CODEC: ClassVar[dict] = {"Z": "<B", "B": "<b", "C": "<H", "S": "<h", "I": "<i", "J": "<q", "F": "<f", "D": "<d"}
 
     @staticmethod
     def _letter(array: object) -> str:
@@ -85,9 +76,7 @@ class JavaArrays(JavaObject):
                 v = int(element) & 0xFFFFFFFFFFFFFFFF
                 h = JavaNumber._narrow(v ^ (v >> 32), 32)
             elif letter == "D":  # double
-                bits = (
-                    struct.unpack("<q", struct.pack("<d", float(element)))[0] & 0xFFFFFFFFFFFFFFFF
-                )
+                bits = struct.unpack("<q", struct.pack("<d", float(element)))[0] & 0xFFFFFFFFFFFFFFFF
                 h = JavaNumber._narrow(bits ^ (bits >> 32), 32)
             elif letter == "F":  # float
                 h = struct.unpack("<i", struct.pack("<f", float(element)))[0]
@@ -132,12 +121,8 @@ class JavaArrays(JavaObject):
         # A custom Comparator is guest code the pure model can't invoke — natural-order sorting would be
         # a silently-wrong result, so fail loud (route through the handler).
         if comparator and comparator[0] is not None:
-            raise NotImplementedError(
-                "java.util.Arrays.sort: a custom Comparator must be invoked via the JniHandler"
-            )
-        elements = sorted(
-            JavaArrays._elements(array), key=functools.cmp_to_key(JavaSupport.natural_compare)
-        )
+            raise NotImplementedError("java.util.Arrays.sort: a custom Comparator must be invoked via the JniHandler")
+        elements = sorted(JavaArrays._elements(array), key=functools.cmp_to_key(JavaSupport.natural_compare))
         if isinstance(array.value, list):
             array.value = elements
         else:  # primitive array: re-pack to little-endian bytes

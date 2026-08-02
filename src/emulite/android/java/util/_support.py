@@ -14,9 +14,7 @@ class JavaSupport:
 
     @staticmethod
     def display(obj: object) -> str:
-        return (
-            obj.toString() if isinstance(obj, JavaObject) else ("null" if obj is None else str(obj))
-        )
+        return obj.toString() if isinstance(obj, JavaObject) else ("null" if obj is None else str(obj))
 
     @staticmethod
     def natural_compare(a: object, b: object) -> int:

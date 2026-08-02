@@ -81,31 +81,17 @@ class AndroidSyscallHandler64:
             return -Errno.ENOSYS
 
         handler, arg_count = entry
-        registers = [
-            self._be.reg_read(reg_id) for reg_id in self._arch.syscall_arg_regs[:arg_count]
-        ]
+        registers = [self._be.reg_read(reg_id) for reg_id in self._arch.syscall_arg_regs[:arg_count]]
         try:
             result = handler(*registers)
         except UnimplementedSyscall as unimplemented:
-            self._log.syscall(
-                "unimplemented %s (nr=%d) -> %s",
-                unimplemented.name,
-                unimplemented.number,
-                "throwing" if self._strict else "-ENOSYS",
-                level=LogLevel.ERROR,
-            )
+            self._log.syscall("unimplemented %s (nr=%d) -> %s", unimplemented.name, unimplemented.number, "throwing" if self._strict else "-ENOSYS", level=LogLevel.ERROR)
             if self._strict:
                 raise
             return -Errno.ENOSYS
         result = 0 if result is None else result
         if self._log.is_enabled(LogCategory.Syscall, LogLevel.TRACE):
-            self._log.syscall(
-                "%s(%s) => %s",
-                handler.__name__[1:],
-                ", ".join(hex(value) for value in registers),
-                hex(result),
-                level=LogLevel.TRACE,
-            )
+            self._log.syscall("%s(%s) => %s", handler.__name__[1:], ", ".join(hex(value) for value in registers), hex(result), level=LogLevel.TRACE)
         return result
 
     def _handlers(self) -> dict[int, "tuple[Callable[..., int], int]"]:
@@ -499,23 +485,13 @@ class AndroidSyscallHandler64:
         self._log.syscall("epoll_ctl(epfd=%d, op=%d, fd=%d) => %d", epfd, op, fd, result)
         return result
 
-    def _epoll_pwait(
-        self,
-        epfd: int,
-        events_ptr: int,
-        maxevents: int,
-        _timeout: int,
-        _sigmask: int,
-        _sigsetsize: int,
-    ) -> int:
+    def _epoll_pwait(self, epfd: int, events_ptr: int, maxevents: int, _timeout: int, _sigmask: int, _sigsetsize: int) -> int:
         ready = self._emu.vfs.epoll_wait(epfd, maxevents)
         if ready is None:
             self._log.syscall("epoll_pwait(epfd=%d) => -EBADF", epfd, level=LogLevel.WARN)
             return -Errno.EBADF
         for i, (_fd, events, data) in enumerate(ready):
-            EpollEvent(events=events, data=data).write_to(
-                self._mem, events_ptr + i * EpollEvent.SIZE
-            )
+            EpollEvent(events=events, data=data).write_to(self._mem, events_ptr + i * EpollEvent.SIZE)
         self._log.syscall("epoll_pwait(epfd %d) => %d ready", epfd, len(ready))
         return len(ready)
 
@@ -614,18 +590,7 @@ class AndroidSyscallHandler64:
         blocks = total_bytes // 4096
         bfree = blocks * 35 // 100
         files = blocks // 4
-        StatFS64(
-            fs_type=0xEF53,
-            bsize=4096,
-            blocks=blocks,
-            bfree=bfree,
-            bavail=bfree,
-            files=files,
-            ffree=files * 70 // 100,
-            namelen=255,
-            frsize=4096,
-            flags=0x1006,
-        ).write_to(self._mem, buf_ptr)
+        StatFS64(fs_type=0xEF53, bsize=4096, blocks=blocks, bfree=bfree, bavail=bfree, files=files, ffree=files * 70 // 100, namelen=255, frsize=4096, flags=0x1006).write_to(self._mem, buf_ptr)
 
     def _statfs(self, path_ptr: int, buf_ptr: int) -> int:
         path = self._mem.read_cstr(path_ptr)
@@ -660,13 +625,7 @@ class AndroidSyscallHandler64:
 
     def _fallocate(self, fd: int, _mode: int, offset: int, length: int) -> int:
         if self._emu.vfs.fstat(fd) is None:
-            self._log.syscall(
-                "fallocate(fd=%d, off=%d, len=%d) => -EBADF",
-                fd,
-                offset,
-                length,
-                level=LogLevel.WARN,
-            )
+            self._log.syscall("fallocate(fd=%d, off=%d, len=%d) => -EBADF", fd, offset, length, level=LogLevel.WARN)
             return -Errno.EBADF
         result = self._emu.vfs.ftruncate(fd, offset + length)
         self._log.syscall("fallocate(fd=%d, off=%d, len=%d) => %d", fd, offset, length, result)
@@ -705,18 +664,14 @@ class AndroidSyscallHandler64:
     def _fchownat(self, _dirfd: int, path_ptr: int, owner: int, group: int, _flags: int) -> int:
         path = self._mem.read_cstr(path_ptr)
         if not self._emu.vfs.exists(path):
-            self._log.syscall(
-                "fchownat(%r, %d:%d) => -ENOENT", path, owner, group, level=LogLevel.WARN
-            )
+            self._log.syscall("fchownat(%r, %d:%d) => -ENOENT", path, owner, group, level=LogLevel.WARN)
             return -Errno.ENOENT
         self._log.syscall("fchownat(%r, %d:%d) => 0 (ownership not modelled)", path, owner, group)
         return 0
 
     def _fchown(self, fd: int, owner: int, group: int) -> int:
         if self._emu.vfs.fstat(fd) is None:
-            self._log.syscall(
-                "fchown(fd=%d, %d:%d) => -EBADF", fd, owner, group, level=LogLevel.WARN
-            )
+            self._log.syscall("fchown(fd=%d, %d:%d) => -EBADF", fd, owner, group, level=LogLevel.WARN)
             return -Errno.EBADF
         self._log.syscall("fchown(fd=%d, %d:%d) => 0 (ownership not modelled)", fd, owner, group)
         return 0
@@ -758,12 +713,7 @@ class AndroidSyscallHandler64:
             record = Dirent64.create(d_ino, 0, name, d_type)
             if written + record.reclen > count:
                 if written == 0:
-                    self._log.syscall(
-                        "getdents64(fd=%d, count=%d) => -EINVAL (buffer too small)",
-                        fd,
-                        count,
-                        level=LogLevel.WARN,
-                    )
+                    self._log.syscall("getdents64(fd=%d, count=%d) => -EINVAL (buffer too small)", fd, count, level=LogLevel.WARN)
                     return -Errno.EINVAL
                 break
             record.off = written + record.reclen
@@ -771,9 +721,7 @@ class AndroidSyscallHandler64:
             written += record.reclen
             packed += 1
         self._emu.vfs.advance_dir(fd, packed)
-        self._log.syscall(
-            "getdents64(fd=%d, count=%d) => %d bytes, %d entries", fd, count, written, packed
-        )
+        self._log.syscall("getdents64(fd=%d, count=%d) => %d bytes, %d entries", fd, count, written, packed)
         return written
 
     def _lseek(self, fd: int, offset: int, whence: int) -> int:
@@ -823,9 +771,7 @@ class AndroidSyscallHandler64:
         data = b"".join(chunks)
         written = self._emu.vfs.write(fd, data)
         if written < 0:
-            self._log.syscall(
-                "writev(fd=%d, iovcnt=%d) => %d", fd, iovcnt, written, level=LogLevel.WARN
-            )
+            self._log.syscall("writev(fd=%d, iovcnt=%d) => %d", fd, iovcnt, written, level=LogLevel.WARN)
             return written
         self._log.syscall("writev(fd=%d, iovcnt=%d) => %d bytes", fd, iovcnt, len(data))
         return len(data)
@@ -842,9 +788,7 @@ class AndroidSyscallHandler64:
             self._log.syscall("pread64(fd=%d) => %d", fd, data, level=LogLevel.WARN)
             return data
         self._mem.write(buf, data)
-        self._log.syscall(
-            "pread64(fd=%d, count=%d, off=%d) => %d bytes", fd, count, offset, len(data)
-        )
+        self._log.syscall("pread64(fd=%d, count=%d, off=%d) => %d bytes", fd, count, offset, len(data))
         return len(data)
 
     def _pwrite64(self, fd: int, buf: int, count: int, offset: int) -> int:
@@ -867,9 +811,7 @@ class AndroidSyscallHandler64:
     def _sendfile(self) -> int:
         raise UnimplementedSyscall("sendfile", 71)
 
-    def _pselect6(
-        self, nfds: int, readfds: int, writefds: int, exceptfds: int, _timeout: int, _sig: int
-    ) -> int:
+    def _pselect6(self, nfds: int, readfds: int, writefds: int, exceptfds: int, _timeout: int, _sig: int) -> int:
         nbytes = min((nfds + 7) // 8, 128)
         ready = 0
         if readfds:
@@ -901,9 +843,7 @@ class AndroidSyscallHandler64:
             if handle is None:
                 revents = pollnval
             else:
-                revents = (pollout | (pollin if handle.can_read() else 0)) & (
-                    poll.events | pollnval
-                )
+                revents = (pollout | (pollin if handle.can_read() else 0)) & (poll.events | pollnval)
             Pollfd.write_revents(self._mem, entry, revents)
             if revents:
                 ready += 1
@@ -926,9 +866,7 @@ class AndroidSyscallHandler64:
         path = self._mem.read_cstr(path_ptr)
         target = self._emu.vfs.readlink(path)
         if target is None:
-            self._log.syscall(
-                "readlinkat(%r) => -EINVAL (not a symlink)", path, level=LogLevel.WARN
-            )
+            self._log.syscall("readlinkat(%r) => -EINVAL (not a symlink)", path, level=LogLevel.WARN)
             return -Errno.EINVAL
         data = target.encode("utf-8")[:bufsize]
         self._mem.write(buf, data)
@@ -1014,9 +952,7 @@ class AndroidSyscallHandler64:
 
     def _set_tid_address(self, tid_address: int) -> int:
         self._clear_child_tid = tid_address
-        self._log.syscall(
-            "set_tid_address(%#x) => %d (tid)", tid_address, self._profile.process_tid
-        )
+        self._log.syscall("set_tid_address(%#x) => %d (tid)", tid_address, self._profile.process_tid)
         return self._profile.process_tid
 
     def _unshare(self) -> int:
@@ -1027,22 +963,14 @@ class AndroidSyscallHandler64:
         if command in (0, 9):
             current = self._mem.read_u32(uaddr)
             if current != (val & 0xFFFFFFFF):
-                self._log.syscall(
-                    "futex(%#x, WAIT, %#x) => -EAGAIN  (value is %#x)", uaddr, val, current
-                )
+                self._log.syscall("futex(%#x, WAIT, %#x) => -EAGAIN  (value is %#x)", uaddr, val, current)
                 return -Errno.EAGAIN
-            self._log.syscall(
-                "futex(%#x, WAIT, %#x) => 0  (uncontended, single-thread)", uaddr, val
-            )
+            self._log.syscall("futex(%#x, WAIT, %#x) => 0  (uncontended, single-thread)", uaddr, val)
             return 0
         if command in (1, 10):
-            self._log.syscall(
-                "futex(%#x, WAKE, n=%d) => 0  (no waiters, single-thread)", uaddr, val
-            )
+            self._log.syscall("futex(%#x, WAKE, n=%d) => 0  (no waiters, single-thread)", uaddr, val)
             return 0
-        self._log.syscall(
-            "futex(%#x, op=%#x) unsupported => -ENOSYS", uaddr, op, level=LogLevel.WARN
-        )
+        self._log.syscall("futex(%#x, op=%#x) unsupported => -ENOSYS", uaddr, op, level=LogLevel.WARN)
         return -Errno.ENOSYS
 
     def _set_robust_list(self, head: int, length: int) -> int:
@@ -1114,13 +1042,7 @@ class AndroidSyscallHandler64:
         realtime = clock_id in (0, 5)
         nanos = self._clock_now(realtime)
         TimeSpec64.from_ns(nanos).write_to(self._mem, timespec_ptr)
-        self._log.syscall(
-            "clock_gettime(%s=%d) => %d.%09d",
-            "REALTIME" if realtime else "MONOTONIC",
-            clock_id,
-            nanos // 1_000_000_000,
-            nanos % 1_000_000_000,
-        )
+        self._log.syscall("clock_gettime(%s=%d) => %d.%09d", "REALTIME" if realtime else "MONOTONIC", clock_id, nanos // 1_000_000_000, nanos % 1_000_000_000)
         return 0
 
     def _clock_getres(self, _clock_id: int, res_ptr: int) -> int:
@@ -1179,9 +1101,7 @@ class AndroidSyscallHandler64:
             full = ((1 << cpu_count) - 1).to_bytes((cpu_count + 7) // 8, "little")
             mask = full[:cpuset_size] if cpuset_size else full
         self._mem.write(mask_ptr, mask)
-        self._log.syscall(
-            "sched_getaffinity(pid=%d, size=%d) => %d bytes", pid, cpuset_size, len(mask)
-        )
+        self._log.syscall("sched_getaffinity(pid=%d, size=%d) => %d bytes", pid, cpuset_size, len(mask))
         return len(mask)
 
     def _sched_yield(self) -> int:
@@ -1195,9 +1115,7 @@ class AndroidSyscallHandler64:
         if policy in (0, 3, 5):
             self._log.syscall("sched_get_priority_max(policy=%d) => 0", policy)
             return 0
-        self._log.syscall(
-            "sched_get_priority_max(policy=%d) => -EINVAL", policy, level=LogLevel.WARN
-        )
+        self._log.syscall("sched_get_priority_max(policy=%d) => -EINVAL", policy, level=LogLevel.WARN)
         return -Errno.EINVAL
 
     def _sched_get_priority_min(self, policy: int) -> int:
@@ -1207,9 +1125,7 @@ class AndroidSyscallHandler64:
         if policy in (0, 3, 5):
             self._log.syscall("sched_get_priority_min(policy=%d) => 0", policy)
             return 0
-        self._log.syscall(
-            "sched_get_priority_min(policy=%d) => -EINVAL", policy, level=LogLevel.WARN
-        )
+        self._log.syscall("sched_get_priority_min(policy=%d) => -EINVAL", policy, level=LogLevel.WARN)
         return -Errno.EINVAL
 
     def _sched_rr_get_interval(self) -> int:
@@ -1288,12 +1204,7 @@ class AndroidSyscallHandler64:
     def _tkill(self, tid: int, sig: int) -> "int | None":
         if sig == 0:
             result = 0 if tid == self._profile.process_tid else -Errno.ESRCH
-            self._log.syscall(
-                "tkill(tid=%d, sig=0) => %d",
-                tid,
-                result,
-                level=LogLevel.DEBUG if result == 0 else LogLevel.WARN,
-            )
+            self._log.syscall("tkill(tid=%d, sig=0) => %d", tid, result, level=LogLevel.DEBUG if result == 0 else LogLevel.WARN)
             return result
         return self._deliver_signal(sig)
 
@@ -1305,11 +1216,7 @@ class AndroidSyscallHandler64:
             self._mem.write(old_stack_ptr, self._alt_stack)
         if new_stack_ptr:
             self._alt_stack = self._mem.read(new_stack_ptr, 24)
-        self._log.syscall(
-            "sigaltstack(ss=%#x, old=%#x) => 0  (stored; never switched to)",
-            new_stack_ptr,
-            old_stack_ptr,
-        )
+        self._log.syscall("sigaltstack(ss=%#x, old=%#x) => 0  (stored; never switched to)", new_stack_ptr, old_stack_ptr)
         return 0
 
     def _rt_sigsuspend(self) -> int:
@@ -1321,9 +1228,7 @@ class AndroidSyscallHandler64:
         if act_ptr:
             self._sigactions[signum] = Sigaction64.read_from(self._mem, act_ptr)
         current = self._sigactions.get(signum)
-        self._log.syscall(
-            "rt_sigaction(sig=%d) => 0  (handler=%#x)", signum, current.handler if current else 0
-        )
+        self._log.syscall("rt_sigaction(sig=%d) => 0  (handler=%#x)", signum, current.handler if current else 0)
         return 0
 
     def _rt_sigprocmask(self, how: int, set_ptr: int, oldset_ptr: int) -> int:
@@ -1331,13 +1236,7 @@ class AndroidSyscallHandler64:
             self._mem.write_u64(oldset_ptr, self._signal_mask)
         if set_ptr:
             new_bits = self._mem.read_u64(set_ptr)
-            self._signal_mask = (
-                (self._signal_mask | new_bits)
-                if how == 0
-                else (self._signal_mask & ~new_bits)
-                if how == 1
-                else new_bits
-            )
+            self._signal_mask = (self._signal_mask | new_bits) if how == 0 else (self._signal_mask & ~new_bits) if how == 1 else new_bits
         self._log.syscall("rt_sigprocmask(how=%d) => 0  (mask now %#x)", how, self._signal_mask)
         return 0
 
@@ -1399,9 +1298,7 @@ class AndroidSyscallHandler64:
 
     def _times(self, buf: int) -> int:
         if buf:
-            Tms64(
-                utime=self._profile.utime_ticks, stime=self._profile.stime_ticks, cutime=0, cstime=0
-            ).write_to(self._mem, buf)
+            Tms64(utime=self._profile.utime_ticks, stime=self._profile.stime_ticks, cutime=0, cstime=0).write_to(self._mem, buf)
         elapsed = self._emu.device.clock.monotonic_ns() // 10_000_000 or 1
         self._log.syscall("times() => %d ticks", elapsed)
         return elapsed
@@ -1437,14 +1334,7 @@ class AndroidSyscallHandler64:
     def _uname(self, utsname_ptr: int) -> int:
         sysname, nodename, release, version, _machine, domainname = self._emu.device.uname()
         machine = self._emu.arch.uname_machine
-        Utsname(
-            sysname=sysname,
-            nodename=nodename,
-            release=release,
-            version=version,
-            machine=machine,
-            domainname=domainname,
-        ).write_to(self._mem, utsname_ptr)
+        Utsname(sysname=sysname, nodename=nodename, release=release, version=version, machine=machine, domainname=domainname).write_to(self._mem, utsname_ptr)
         self._log.syscall("uname() => %s %s %s", sysname, release, machine)
         return 0
 
@@ -1481,9 +1371,7 @@ class AndroidSyscallHandler64:
 
     def _setrlimit(self, resource: int, rlim_ptr: int) -> int:
         cur, maximum = self._mem.read_u64(rlim_ptr), self._mem.read_u64(rlim_ptr + 8)
-        self._log.syscall(
-            "setrlimit(res=%d, cur=%#x, max=%#x) => 0 (ignored)", resource, cur, maximum
-        )
+        self._log.syscall("setrlimit(res=%d, cur=%#x, max=%#x) => 0 (ignored)", resource, cur, maximum)
         return 0
 
     def _getrusage(self, who: int, usage_ptr: int) -> int:
@@ -1491,13 +1379,9 @@ class AndroidSyscallHandler64:
             self._log.syscall("getrusage(who=%d) => -EINVAL", who, level=LogLevel.WARN)
             return -Errno.EINVAL
         p = self._profile
-        Rusage64(
-            utime_usec=p.utime_ticks * 10_000,
-            stime_usec=p.stime_ticks * 10_000,
-            maxrss=45000,
-            nvcsw=p.voluntary_ctxt_switches,
-            nivcsw=p.nonvoluntary_ctxt_switches,
-        ).write_to(self._mem, usage_ptr)
+        Rusage64(utime_usec=p.utime_ticks * 10_000, stime_usec=p.stime_ticks * 10_000, maxrss=45000, nvcsw=p.voluntary_ctxt_switches, nivcsw=p.nonvoluntary_ctxt_switches).write_to(
+            self._mem, usage_ptr
+        )
         self._log.syscall("getrusage(who=%d) => 0", who)
         return 0
 
@@ -1508,9 +1392,7 @@ class AndroidSyscallHandler64:
 
     def _prctl(self, option: int, arg2: int, arg3: int, arg4: int, arg5: int) -> int:
         if option == 15:
-            self._thread_name = (
-                self._mem.read(arg2, 16).split(b"\x00", 1)[0].decode("utf-8", "replace")
-            )
+            self._thread_name = self._mem.read(arg2, 16).split(b"\x00", 1)[0].decode("utf-8", "replace")
             self._log.syscall("prctl(PR_SET_NAME, %r) => 0", self._thread_name)
             return 0
         if option == 16:
@@ -1523,18 +1405,12 @@ class AndroidSyscallHandler64:
             self._log.syscall("prctl(PR_SET_DUMPABLE, %d) => 0", arg2)
             return 0
         if option == 3:
-            dumpable = (
-                self._dumpable
-                if self._dumpable is not None
-                else (1 if self._emu.device.get("ro.debuggable", "0") == "1" else 0)
-            )
+            dumpable = self._dumpable if self._dumpable is not None else (1 if self._emu.device.get("ro.debuggable", "0") == "1" else 0)
             self._log.syscall("prctl(PR_GET_DUMPABLE) => %d", dumpable)
             return dumpable
         if option == 0x53564D41:
             region_name = self._mem.read_cstr(arg5) if arg5 else ""
-            self._log.syscall(
-                "prctl(PR_SET_VMA, addr=%#x, len=%#x, %r) => 0", arg3, arg4, region_name
-            )
+            self._log.syscall("prctl(PR_SET_VMA, addr=%#x, len=%#x, %r) => 0", arg3, arg4, region_name)
             return 0
         if option == 38:
             self._log.syscall("prctl(PR_SET_NO_NEW_PRIVS, %d) => 0", arg2)
@@ -1603,18 +1479,8 @@ class AndroidSyscallHandler64:
         dev = self._emu.device
         uptime_s = dev.clock.uptime_s()
         loads = tuple(int(load * 65536) for load in dev.load_averages)
-        Sysinfo64(
-            uptime=uptime_s,
-            loads=loads,
-            totalram=totalram,
-            freeram=freeram,
-            sharedram=totalram // 16,
-            bufferram=totalram // 32,
-            procs=dev.total_procs,
-        ).write_to(self._mem, info_ptr)
-        self._log.syscall(
-            "sysinfo() => totalram=%d freeram=%d procs=%d", totalram, freeram, dev.total_procs
-        )
+        Sysinfo64(uptime=uptime_s, loads=loads, totalram=totalram, freeram=freeram, sharedram=totalram // 16, bufferram=totalram // 32, procs=dev.total_procs).write_to(self._mem, info_ptr)
+        self._log.syscall("sysinfo() => totalram=%d freeram=%d procs=%d", totalram, freeram, dev.total_procs)
         return 0
 
     def _mq_open(self) -> int:
@@ -1681,9 +1547,7 @@ class AndroidSyscallHandler64:
 
     def _socket(self, domain: int, sock_type: int, protocol: int) -> int:
         fd = self._emu.vfs.socket(domain, sock_type, protocol)
-        self._log.syscall(
-            "socket(domain=%d, type=%#x, proto=%d) => %d", domain, sock_type, protocol, fd
-        )
+        self._log.syscall("socket(domain=%d, type=%#x, proto=%d) => %d", domain, sock_type, protocol, fd)
         return fd
 
     def _socketpair(self, domain: int, sock_type: int, protocol: int, sv_ptr: int) -> int:
@@ -1698,19 +1562,12 @@ class AndroidSyscallHandler64:
 
     def _bind(self, fd: int, _addr_ptr: int, _addrlen: int) -> int:
         result = 0 if self._emu.vfs.socket_handle(fd) is not None else -Errno.ENOTSOCK
-        self._log.syscall(
-            "bind(fd=%d) => %d", fd, result, level=LogLevel.DEBUG if result == 0 else LogLevel.WARN
-        )
+        self._log.syscall("bind(fd=%d) => %d", fd, result, level=LogLevel.DEBUG if result == 0 else LogLevel.WARN)
         return result
 
     def _listen(self, fd: int, _backlog: int) -> int:
         result = 0 if self._emu.vfs.socket_handle(fd) is not None else -Errno.ENOTSOCK
-        self._log.syscall(
-            "listen(fd=%d) => %d",
-            fd,
-            result,
-            level=LogLevel.DEBUG if result == 0 else LogLevel.WARN,
-        )
+        self._log.syscall("listen(fd=%d) => %d", fd, result, level=LogLevel.DEBUG if result == 0 else LogLevel.WARN)
         return result
 
     def _accept(self) -> int:
@@ -1719,13 +1576,7 @@ class AndroidSyscallHandler64:
     def _connect(self, fd: int, addr_ptr: int, addrlen: int) -> int:
         path = self._read_sockaddr_un(addr_ptr, addrlen)
         result = self._emu.vfs.connect(fd, path)
-        self._log.syscall(
-            "connect(fd=%d, %r) => %d",
-            fd,
-            path,
-            result,
-            level=LogLevel.DEBUG if result >= 0 else LogLevel.WARN,
-        )
+        self._log.syscall("connect(fd=%d, %r) => %d", fd, path, result, level=LogLevel.DEBUG if result >= 0 else LogLevel.WARN)
         return result
 
     def _getsockname(self, fd: int, _addr_ptr: int, addrlen_ptr: int) -> int:
@@ -1740,9 +1591,7 @@ class AndroidSyscallHandler64:
         self._log.syscall("getpeername(fd=%d) => 0 (AF_UNIX)", fd)
         return 0
 
-    def _sendto(
-        self, fd: int, buf_ptr: int, length: int, _flags: int, _dest: int, _addrlen: int
-    ) -> int:
+    def _sendto(self, fd: int, buf_ptr: int, length: int, _flags: int, _dest: int, _addrlen: int) -> int:
         sock = self._emu.vfs.socket_handle(fd)
         if sock is None:
             self._log.syscall("sendto(fd=%d) => -ENOTSOCK", fd, level=LogLevel.WARN)
@@ -1751,9 +1600,7 @@ class AndroidSyscallHandler64:
         self._log.syscall("sendto(fd=%d, %d bytes) => %d", fd, length, length)
         return length
 
-    def _recvfrom(
-        self, fd: int, buf_ptr: int, length: int, flags: int, _src: int, _addrlen: int
-    ) -> int:
+    def _recvfrom(self, fd: int, buf_ptr: int, length: int, flags: int, _src: int, _addrlen: int) -> int:
         sock = self._emu.vfs.socket_handle(fd)
         if sock is None:
             self._log.syscall("recvfrom(fd=%d) => -ENOTSOCK", fd, level=LogLevel.WARN)
@@ -1765,48 +1612,23 @@ class AndroidSyscallHandler64:
 
     def _setsockopt(self, fd: int, _level: int, _optname: int, _optval: int, _optlen: int) -> int:
         result = 0 if self._emu.vfs.socket_handle(fd) is not None else -Errno.ENOTSOCK
-        self._log.syscall(
-            "setsockopt(fd=%d) => %d",
-            fd,
-            result,
-            level=LogLevel.DEBUG if result == 0 else LogLevel.WARN,
-        )
+        self._log.syscall("setsockopt(fd=%d) => %d", fd, result, level=LogLevel.DEBUG if result == 0 else LogLevel.WARN)
         return result
 
-    def _getsockopt(
-        self, fd: int, level: int, optname: int, optval_ptr: int, optlen_ptr: int
-    ) -> int:
+    def _getsockopt(self, fd: int, level: int, optname: int, optval_ptr: int, optlen_ptr: int) -> int:
         sock = self._emu.vfs.socket_handle(fd)
         if sock is None:
-            self._log.syscall(
-                "getsockopt(fd=%d, level=%d, optname=%d) => -ENOTSOCK",
-                fd,
-                level,
-                optname,
-                level=LogLevel.WARN,
-            )
+            self._log.syscall("getsockopt(fd=%d, level=%d, optname=%d) => -ENOTSOCK", fd, level, optname, level=LogLevel.WARN)
             return -Errno.ENOTSOCK
         value = self._sockopt_value(sock, level, optname)
         if value is None:
-            self._log.syscall(
-                "getsockopt(fd=%d, level=%d, optname=%d) => -ENOPROTOOPT",
-                fd,
-                level,
-                optname,
-                level=LogLevel.WARN,
-            )
+            self._log.syscall("getsockopt(fd=%d, level=%d, optname=%d) => -ENOPROTOOPT", fd, level, optname, level=LogLevel.WARN)
             return -Errno.ENOPROTOOPT
         if optval_ptr:
             self._mem.write_u32(optval_ptr, value & 0xFFFFFFFF)
         if optlen_ptr:
             self._mem.write_u32(optlen_ptr, 4)
-        self._log.syscall(
-            "getsockopt(fd=%d, level=%d, optname=%d) => 0 (value=%#x)",
-            fd,
-            level,
-            optname,
-            value & 0xFFFFFFFF,
-        )
+        self._log.syscall("getsockopt(fd=%d, level=%d, optname=%d) => 0 (value=%#x)", fd, level, optname, value & 0xFFFFFFFF)
         return 0
 
     def _sockopt_value(self, sock: "SocketIO", level: int, optname: int) -> "int | None":
@@ -1824,12 +1646,7 @@ class AndroidSyscallHandler64:
 
     def _shutdown(self, fd: int, _how: int) -> int:
         result = 0 if self._emu.vfs.socket_handle(fd) is not None else -Errno.ENOTSOCK
-        self._log.syscall(
-            "shutdown(fd=%d) => %d",
-            fd,
-            result,
-            level=LogLevel.DEBUG if result == 0 else LogLevel.WARN,
-        )
+        self._log.syscall("shutdown(fd=%d) => %d", fd, result, level=LogLevel.DEBUG if result == 0 else LogLevel.WARN)
         return result
 
     def _iovecs(self, iov_ptr: int, iovcnt: int) -> "list[Iovec64]":
@@ -1879,48 +1696,25 @@ class AndroidSyscallHandler64:
         try:
             self._mem.unmap(addr, length)
         except Exception as error:
-            self._log.syscall(
-                "munmap(%#x, %#x) failed (%s) => -EINVAL", addr, length, error, level=LogLevel.WARN
-            )
+            self._log.syscall("munmap(%#x, %#x) failed (%s) => -EINVAL", addr, length, error, level=LogLevel.WARN)
             return -Errno.EINVAL
         self._log.syscall("munmap(%#x, %#x) => 0", addr, length)
         return 0
 
-    def _mremap(
-        self, old_address: int, old_size: int, new_size: int, flags: int, new_address: int
-    ) -> int:
+    def _mremap(self, old_address: int, old_size: int, new_size: int, flags: int, new_address: int) -> int:
         maymove, fixed, dontunmap = 1, 2, 4
         if old_size == 0 or new_size == 0:
-            self._log.syscall(
-                "mremap(%#x, %#x->%#x) => -EINVAL",
-                old_address,
-                old_size,
-                new_size,
-                level=LogLevel.WARN,
-            )
+            self._log.syscall("mremap(%#x, %#x->%#x) => -EINVAL", old_address, old_size, new_size, level=LogLevel.WARN)
             return -Errno.EINVAL
-        old_aligned, new_aligned = (
-            MemoryLayout.page_align_up(old_size),
-            MemoryLayout.page_align_up(new_size),
-        )
+        old_aligned, new_aligned = (MemoryLayout.page_align_up(old_size), MemoryLayout.page_align_up(new_size))
         try:
             if new_aligned <= old_aligned:
                 if new_aligned < old_aligned:
                     self._mem.unmap(old_address + new_aligned, old_aligned - new_aligned)
-                self._log.syscall(
-                    "mremap(%#x, %#x->%#x) => %#x (in place)",
-                    old_address,
-                    old_size,
-                    new_size,
-                    old_address,
-                )
+                self._log.syscall("mremap(%#x, %#x->%#x) => %#x (in place)", old_address, old_size, new_size, old_address)
                 return old_address
             if not (flags & maymove) and not (flags & fixed):
-                self._log.syscall(
-                    "mremap(%#x) can't grow in place (no MAYMOVE) => -ENOMEM",
-                    old_address,
-                    level=LogLevel.WARN,
-                )
+                self._log.syscall("mremap(%#x) can't grow in place (no MAYMOVE) => -ENOMEM", old_address, level=LogLevel.WARN)
                 return -Errno.ENOMEM
             if flags & fixed:
                 base = new_address
@@ -1930,19 +1724,10 @@ class AndroidSyscallHandler64:
             self._mem.write(base, self._mem.read(old_address, old_size))
             if not (flags & dontunmap):
                 self._mem.unmap(old_address, old_aligned)
-            self._log.syscall(
-                "mremap(%#x, %#x->%#x, flags=%#x) => %#x",
-                old_address,
-                old_size,
-                new_size,
-                flags,
-                base,
-            )
+            self._log.syscall("mremap(%#x, %#x->%#x, flags=%#x) => %#x", old_address, old_size, new_size, flags, base)
             return base
         except Exception as error:
-            self._log.syscall(
-                "mremap(%#x) failed (%s) => -ENOMEM", old_address, error, level=LogLevel.ERROR
-            )
+            self._log.syscall("mremap(%#x) failed (%s) => -ENOMEM", old_address, error, level=LogLevel.ERROR)
             return -Errno.ENOMEM
 
     def _add_key(self) -> int:
@@ -1963,15 +1748,7 @@ class AndroidSyscallHandler64:
             self._mem.write_u32(ptid, tid)
         if flags & CloneFlag.CLONE_CHILD_SETTID and ctid:
             self._mem.write_u32(ctid, tid)
-        self._log.syscall(
-            "clone(flags=%#x, stack=%#x, tls=%#x) => %d  "
-            "(thread created but NOT run — single-threaded emulation)",
-            flags,
-            stack,
-            tls,
-            tid,
-            level=LogLevel.WARN,
-        )
+        self._log.syscall("clone(flags=%#x, stack=%#x, tls=%#x) => %d  (thread created but NOT run — single-threaded emulation)", flags, stack, tls, tid, level=LogLevel.WARN)
         return tid
 
     def _execve(self) -> int:
@@ -1993,16 +1770,7 @@ class AndroidSyscallHandler64:
             base = addr
         else:
             base = self._mem.mmap(length, perms, "mmap")
-        self._log.syscall(
-            "mmap(addr=%#x, len=%#x, prot=%s, flags=%#x, fd=%d) => %#x",
-            addr,
-            length,
-            self._prot_str(prot),
-            flags,
-            fd,
-            base,
-            level=LogLevel.INFO,
-        )
+        self._log.syscall("mmap(addr=%#x, len=%#x, prot=%s, flags=%#x, fd=%d) => %#x", addr, length, self._prot_str(prot), flags, fd, base, level=LogLevel.INFO)
         return base
 
     def _fadvise64(self) -> int:
@@ -2043,9 +1811,7 @@ class AndroidSyscallHandler64:
         raise UnimplementedSyscall("mincore", 232)
 
     def _madvise(self, addr: int, length: int, advice: int) -> int:
-        self._log.syscall(
-            "madvise(%#x, %#x, advice=%d) => 0  (advisory, ignored)", addr, length, advice
-        )
+        self._log.syscall("madvise(%#x, %#x, advice=%d) => 0  (advisory, ignored)", addr, length, advice)
         return 0
 
     def _remap_file_pages(self) -> int:
@@ -2146,13 +1912,7 @@ class AndroidSyscallHandler64:
 
     def _getrandom(self, buf: int, length: int, flags: int) -> int:
         self._mem.write(buf, os.urandom(length))
-        self._log.syscall(
-            "getrandom(buf=%#x, len=%d, flags=%#x) => %d bytes of real entropy",
-            buf,
-            length,
-            flags,
-            length,
-        )
+        self._log.syscall("getrandom(buf=%#x, len=%d, flags=%#x) => %d bytes of real entropy", buf, length, flags, length)
         return length
 
     def _memfd_create(self) -> int:
@@ -2193,16 +1953,7 @@ class AndroidSyscallHandler64:
     def _pkey_free(self) -> int:
         raise UnimplementedSyscall("pkey_free", 290)
 
-    def _write_statx(
-        self,
-        buf: int,
-        mode: int,
-        size: int,
-        rdev: int,
-        uid: "int | None" = None,
-        gid: "int | None" = None,
-        ino: int = 0,
-    ) -> None:
+    def _write_statx(self, buf: int, mode: int, size: int, rdev: int, uid: "int | None" = None, gid: "int | None" = None, ino: int = 0) -> None:
         nlink = 2 if mode & StatType.S_IFMT == StatType.S_IFDIR else 1
         p = self._profile
         Statx(
@@ -2220,11 +1971,7 @@ class AndroidSyscallHandler64:
 
     def _statx(self, dirfd: int, path_ptr: int, flags: int, _mask: int, statxbuf: int) -> int:
         path = self._mem.read_cstr(path_ptr)
-        stat = (
-            self._emu.vfs.fstat(dirfd)
-            if not path and (flags & 0x1000)
-            else self._emu.vfs.stat_path(path)
-        )
+        stat = self._emu.vfs.fstat(dirfd) if not path and (flags & 0x1000) else self._emu.vfs.stat_path(path)
         if stat is None:
             self._log.syscall("statx(%r) => -ENOENT", path, level=LogLevel.WARN)
             return -Errno.ENOENT
@@ -2304,15 +2051,7 @@ class AndroidSyscallHandler64:
     def _process_madvise(self) -> int:
         raise UnimplementedSyscall("process_madvise", 440)
 
-    def _epoll_pwait2(
-        self,
-        epfd: int,
-        events_ptr: int,
-        maxevents: int,
-        _timeout: int,
-        _sigmask: int,
-        _sigsetsize: int,
-    ) -> int:
+    def _epoll_pwait2(self, epfd: int, events_ptr: int, maxevents: int, _timeout: int, _sigmask: int, _sigsetsize: int) -> int:
         return self._epoll_pwait(epfd, events_ptr, maxevents, 0, 0, 0)
 
     def _mount_setattr(self) -> int:
@@ -2342,26 +2081,8 @@ class AndroidSyscallHandler64:
     def _set_mempolicy_home_node(self) -> int:
         raise UnimplementedSyscall("set_mempolicy_home_node", 450)
 
-    def _write_stat(
-        self,
-        statbuf: int,
-        mode: int,
-        size: int,
-        rdev: int,
-        uid: "int | None" = None,
-        gid: "int | None" = None,
-        ino: int = 0,
-    ) -> None:
+    def _write_stat(self, statbuf: int, mode: int, size: int, rdev: int, uid: "int | None" = None, gid: "int | None" = None, ino: int = 0) -> None:
         nlink = 2 if mode & StatType.S_IFMT == StatType.S_IFDIR else 1
         p = self._profile
-        stat = FileStat(
-            mode=mode,
-            size=size,
-            rdev=rdev,
-            nlink=nlink,
-            uid=p.process_uid if uid is None else uid,
-            gid=p.process_gid if gid is None else gid,
-            ino=ino,
-            mtime=self._emu.device.file_mtime,
-        )
+        stat = FileStat(mode=mode, size=size, rdev=rdev, nlink=nlink, uid=p.process_uid if uid is None else uid, gid=p.process_gid if gid is None else gid, ino=ino, mtime=self._emu.device.file_mtime)
         Stat64.from_file_stat(stat).write_to(self._mem, statbuf)

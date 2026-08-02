@@ -149,12 +149,7 @@ class AndroidLibcHooks64:
     def _aligned_alloc(self, emu: "AndroidEmulator64") -> int:
         alignment, size = emu.arg(0), emu.arg(1)
         if alignment == 0 or (alignment & (alignment - 1)) or size % alignment != 0:
-            emu.log.libc(
-                "aligned_alloc(align=%d, size=%d) => NULL (invalid)",
-                alignment,
-                size,
-                level=LogLevel.WARN,
-            )
+            emu.log.libc("aligned_alloc(align=%d, size=%d) => NULL (invalid)", alignment, size, level=LogLevel.WARN)
             return 0
         addr = self.heap.memalign(alignment, size)
         emu.log.libc_call("aligned_alloc", f"{alignment}, {size}", addr)
@@ -196,9 +191,7 @@ class AndroidLibcHooks64:
         emu.log.libc_call("dlsym", f"{handle:#x}, {name!r}", addr)
         return addr
 
-    def _lookup_scoped(
-        self, emu: "AndroidEmulator64", module: NativeModule, name: str, seen: set[str]
-    ) -> int:
+    def _lookup_scoped(self, emu: "AndroidEmulator64", module: NativeModule, name: str, seen: set[str]) -> int:
         if module.name in seen:
             return 0
         seen.add(module.name)
@@ -218,48 +211,27 @@ class AndroidLibcHooks64:
         if module is None:
             emu.log.libc("dladdr(%#x) => 0 (no module)", addr)
             return 0
-        nearest = max(
-            (s for s in module.exports.items() if s[1] <= addr), key=lambda s: s[1], default=None
+        nearest = max((s for s in module.exports.items() if s[1] <= addr), key=lambda s: s[1], default=None)
+        DlInfo64(fname=self._intern_cstr(emu.vfs.device_path(module)), fbase=module.base, sname=self._intern_cstr(nearest[0]) if nearest else 0, saddr=nearest[1] if nearest else 0).write_to(
+            emu.mem, info_ptr
         )
-        DlInfo64(
-            fname=self._intern_cstr(emu.vfs.device_path(module)),
-            fbase=module.base,
-            sname=self._intern_cstr(nearest[0]) if nearest else 0,
-            saddr=nearest[1] if nearest else 0,
-        ).write_to(emu.mem, info_ptr)
-        emu.log.libc(
-            "dladdr(%#x) => 1 (%s in %s)", addr, nearest[0] if nearest else "?", module.name
-        )
+        emu.log.libc("dladdr(%#x) => 1 (%s in %s)", addr, nearest[0] if nearest else "?", module.name)
         return 1
 
     def _dl_iterate_phdr(self, emu: "AndroidEmulator64") -> "int | None":
         callback, data = emu.arg(0), emu.arg(1)
         ld = emu.linker_debug
-        modules = [
-            ld.main_image,
-            *(m for m in emu.modules if m.phdr_addr),
-            *ld.dep_images,
-            ld.linker_image,
-        ]
+        modules = [ld.main_image, *(m for m in emu.modules if m.phdr_addr), *ld.dep_images, ld.linker_image]
         if callback == 0:
             emu.log.libc("dl_iterate_phdr => 0 (no callback)")
             return 0
         emu.log.libc("dl_iterate_phdr(cb=%#x) over %d images", callback, len(modules))
         if not self._phdr_next_slot:
-            self._phdr_next_slot = emu.trap.alloc_slot(
-                lambda: self._dl_iterate_step(emu), "dl_iterate_phdr:next"
-            )
+            self._phdr_next_slot = emu.trap.alloc_slot(lambda: self._dl_iterate_step(emu), "dl_iterate_phdr:next")
         depth = len(self._phdr_iterations)
         while len(self._phdr_info_pool) <= depth:
             self._phdr_info_pool.append(emu.mem.mmap(DlPhdrInfo64.SIZE, label="dl_phdr_info"))
-        state = {
-            "modules": modules,
-            "index": 0,
-            "callback": callback,
-            "data": data,
-            "saved_lr": emu.lr,
-            "info": self._phdr_info_pool[depth],
-        }
+        state = {"modules": modules, "index": 0, "callback": callback, "data": data, "saved_lr": emu.lr, "info": self._phdr_info_pool[depth]}
         self._phdr_iterations.append(state)
         self._dl_iterate_invoke(emu, state)
         return None
@@ -268,12 +240,7 @@ class AndroidLibcHooks64:
         module = state["modules"][state["index"]]
         info = state["info"]
         path = getattr(module, "device_path", None) or emu.vfs.device_path(module)
-        DlPhdrInfo64(
-            addr=module.base,
-            name=self._intern_cstr(path),
-            phdr=module.phdr_addr,
-            phnum=module.phnum,
-        ).write_to(emu.mem, info)
+        DlPhdrInfo64(addr=module.base, name=self._intern_cstr(path), phdr=module.phdr_addr, phnum=module.phnum).write_to(emu.mem, info)
         emu.set_arg(0, info)
         emu.set_arg(1, DlPhdrInfo64.SIZE)
         emu.set_arg(2, state["data"])
@@ -296,25 +263,13 @@ class AndroidLibcHooks64:
         if callback == 0:
             emu.log.libc("__system_property_foreach => 0 (no callback)")
             return 0
-        infos = [
-            info
-            for info in (emu.device.find(name) for name in sorted(emu.device.properties))
-            if info
-        ]
+        infos = [info for info in (emu.device.find(name) for name in sorted(emu.device.properties)) if info]
         emu.log.libc("__system_property_foreach(cb=%#x) over %d properties", callback, len(infos))
         if not infos:
             return 0
         if not self._prop_foreach_slot:
-            self._prop_foreach_slot = emu.trap.alloc_slot(
-                lambda: self._prop_foreach_step(emu), "__system_property_foreach:next"
-            )
-        state = {
-            "infos": infos,
-            "index": 0,
-            "callback": callback,
-            "cookie": cookie,
-            "saved_lr": emu.lr,
-        }
+            self._prop_foreach_slot = emu.trap.alloc_slot(lambda: self._prop_foreach_step(emu), "__system_property_foreach:next")
+        state = {"infos": infos, "index": 0, "callback": callback, "cookie": cookie, "saved_lr": emu.lr}
         self._prop_foreach_iterations.append(state)
         self._prop_foreach_invoke(emu, state)
         return None
@@ -402,11 +357,7 @@ class AndroidLibcHooks64:
         info, callback, cookie = emu.arg(0), emu.arg(1), emu.arg(2)
         found = emu.device.read_info(info)
         if found is None or callback == 0:
-            emu.log.libc(
-                "__system_property_read_callback(%#x, cb=%#x) => noop (no prop or NULL cb)",
-                info,
-                callback,
-            )
+            emu.log.libc("__system_property_read_callback(%#x, cb=%#x) => noop (no prop or NULL cb)", info, callback)
             return None
         name, value, serial = found
         emu.set_arg(0, cookie)
@@ -418,9 +369,7 @@ class AndroidLibcHooks64:
         return None
 
     def _log_record(self, emu: "AndroidEmulator64", priority: int, tag: str, message: str) -> int:
-        emu.log.libc(
-            "[%s/%s] %s", self._LOG_LEVELS.get(priority, "?"), tag, message, level=LogLevel.INFO
-        )
+        emu.log.libc("[%s/%s] %s", self._LOG_LEVELS.get(priority, "?"), tag, message, level=LogLevel.INFO)
         return max(len(message.encode("utf-8")), 1)
 
     def _android_log_print(self, emu: "AndroidEmulator64") -> int:
@@ -465,9 +414,7 @@ class AndroidLibcHooks64:
         emu.log.crash("__android_log_assert [%s] %s: %s", tag, cond, fmt)
         raise EmulatorCrashed(f"__android_log_assert: [{tag}] {cond}: {fmt}")
 
-    def _emit_formatted(
-        self, emu: "AndroidEmulator64", buf: int, size: int, text: str, name: str
-    ) -> int:
+    def _emit_formatted(self, emu: "AndroidEmulator64", buf: int, size: int, text: str, name: str) -> int:
         encoded = text.encode("utf-8")
         if buf and size:
             written = min(len(encoded), size - 1)

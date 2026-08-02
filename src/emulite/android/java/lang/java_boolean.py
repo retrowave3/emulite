@@ -21,9 +21,7 @@ class JavaBoolean(JavaObject):
             return cls(False)
         arg = args[0]
         if isinstance(arg, JavaObject):  # new Boolean(String) == parseBoolean: equalsIgnoreCase
-            return cls(
-                str(arg.value).lower() == "true"
-            )  # ("true"), NO whitespace trim (" true " -> false)
+            return cls(str(arg.value).lower() == "true")  # ("true"), NO whitespace trim (" true " -> false)
         return cls(bool(arg))  # new Boolean(boolean)
 
     def booleanValue(self) -> bool:

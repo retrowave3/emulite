@@ -22,9 +22,7 @@ class EventFdIO(FileIO):
 
     def write(self, data: bytes) -> int:
         if len(data) >= 8:
-            self._counter[0] = (
-                self._counter[0] + struct.unpack("<Q", data[:8])[0]
-            ) & 0xFFFFFFFFFFFFFFFF
+            self._counter[0] = (self._counter[0] + struct.unpack("<Q", data[:8])[0]) & 0xFFFFFFFFFFFFFFFF
         return len(data)
 
     def can_read(self) -> bool:

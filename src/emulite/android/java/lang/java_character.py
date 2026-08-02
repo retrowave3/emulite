@@ -62,9 +62,7 @@ class JavaCharacter(JavaObject):
     @staticmethod
     def toUpperCase(code: object) -> int:
         upper = chr(JavaCharacter._code(code)).upper()
-        return (
-            ord(upper) if len(upper) == 1 else JavaCharacter._code(code)
-        )  # char->char, no expansion
+        return ord(upper) if len(upper) == 1 else JavaCharacter._code(code)  # char->char, no expansion
 
     @staticmethod
     def toLowerCase(code: object) -> int:

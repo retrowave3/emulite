@@ -30,16 +30,7 @@ if TYPE_CHECKING:
 
 class JNIEnv:
     _ELEM_SIZE = {"Z": 1, "B": 1, "C": 2, "S": 2, "I": 4, "J": 8, "F": 4, "D": 8}
-    _PRIM_ARRAY_NAME = {
-        "Z": "Boolean",
-        "B": "Byte",
-        "C": "Char",
-        "S": "Short",
-        "I": "Int",
-        "J": "Long",
-        "F": "Float",
-        "D": "Double",
-    }
+    _PRIM_ARRAY_NAME = {"Z": "Boolean", "B": "Byte", "C": "Char", "S": "Short", "I": "Int", "J": "Long", "F": "Float", "D": "Double"}
     _MISS = object()
 
     @staticmethod
@@ -47,12 +38,7 @@ class JNIEnv:
         return ["L" if d[0] in "[L" else d for d in JavaClass.split_arg_descriptors(signature)]
 
     @staticmethod
-    def _build_table(
-        emu: "AndroidEmulatorBase",
-        base: int,
-        handlers: dict[int, Callable[[], "int | None"]],
-        label: str,
-    ) -> None:
+    def _build_table(emu: "AndroidEmulatorBase", base: int, handlers: dict[int, Callable[[], "int | None"]], label: str) -> None:
         mem = emu.mem
         pointer_size = emu.arch.pointer_size
         write_ptr = mem.write_u64 if pointer_size == 8 else mem.write_u32
@@ -67,9 +53,7 @@ class JNIEnv:
             slot = emu.trap.alloc_slot(handler, f"{label}:{handler.__name__}")
             write_ptr(functions + index * pointer_size, slot)
 
-    def __init__(
-        self, emu: "AndroidEmulatorBase", version: JNIVersion = JNIVersion.JNI_VERSION_1_6
-    ):
+    def __init__(self, emu: "AndroidEmulatorBase", version: JNIVersion = JNIVersion.JNI_VERSION_1_6):
         self.emu = emu
         self.handler = emu.jni_handler
         self.log = emu.log
@@ -98,31 +82,19 @@ class JNIEnv:
         return obj if isinstance(obj, JavaObject) and obj.value is not None else None
 
     def _method_id(self, static: bool) -> int:
-        cls, name, sig = (
-            self.dvm.get(self._arg(1)),
-            self._cstr(self._arg(2)),
-            self._cstr(self._arg(3)),
-        )
+        cls, name, sig = (self.dvm.get(self._arg(1)), self._cstr(self._arg(2)), self._cstr(self._arg(3)))
         if not isinstance(cls, JavaClass) or not self.handler.accept_method(cls, name, sig, static):
             return 0
         mid = self.dvm.method_id(cls, name, sig, static)
-        self.log.jni_call(
-            f"Get{'Static' if static else ''}MethodID", f"{cls.name}.{name}{sig}", mid
-        )
+        self.log.jni_call(f"Get{'Static' if static else ''}MethodID", f"{cls.name}.{name}{sig}", mid)
         return mid
 
     def _field_id(self, static: bool) -> int:
-        cls, name, sig = (
-            self.dvm.get(self._arg(1)),
-            self._cstr(self._arg(2)),
-            self._cstr(self._arg(3)),
-        )
+        cls, name, sig = (self.dvm.get(self._arg(1)), self._cstr(self._arg(2)), self._cstr(self._arg(3)))
         if not isinstance(cls, JavaClass) or not self.handler.accept_field(cls, name, sig, static):
             return 0
         fid = self.dvm.field_id(cls, name, sig, static)
-        self.log.jni_call(
-            f"Get{'Static' if static else ''}FieldID", f"{cls.name}.{name}:{sig}", fid
-        )
+        self.log.jni_call(f"Get{'Static' if static else ''}FieldID", f"{cls.name}.{name}:{sig}", fid)
         return fid
 
     def _as_double(self, bits: int) -> float:
@@ -157,9 +129,7 @@ class JNIEnv:
                     self.emu.backend.reg_write(Arm32Reg.R[0], bits & 0xFFFFFFFF)
                     self.emu.backend.reg_write(Arm32Reg.R[1], bits >> 32)
                 else:
-                    self.emu.backend.reg_write(
-                        Arm32Reg.R[0], struct.unpack("<I", struct.pack("<f", value))[0]
-                    )
+                    self.emu.backend.reg_write(Arm32Reg.R[0], struct.unpack("<I", struct.pack("<f", value))[0])
                 return None
             packed = struct.pack("<d", value) if letter == "D" else struct.pack("<f", value)
             self.emu.backend.reg_write(Arm64Reg.Q[0], int.from_bytes(packed, "little"))
@@ -228,20 +198,14 @@ class JNIEnv:
         return getattr(backing, name) if isinstance(raw, (staticmethod, classmethod)) else None
 
     def _call(self, ret: str, kind: str, mode: str) -> "int | None":
-        method_arg = (
-            3 if kind == "nonvirtual" else 2
-        )  # nonvirtual has an extra jclass before the id
+        method_arg = 3 if kind == "nonvirtual" else 2  # nonvirtual has an extra jclass before the id
         method = self.dvm.member(self._arg(method_arg))
         if not isinstance(method, JavaMethod):
             return self._box(ret, None)
         arg_types = self.parse_arg_types(method.signature)
         args = self._read_call_args(arg_types, mode, method_arg + 1)
         recv = None if kind == "static" else self.dvm.get(self._arg(1))
-        real = (
-            self._real_static_method(method.java_class, method.name)
-            if kind == "static"
-            else self._real_method(recv, method.name)
-        )
+        real = self._real_static_method(method.java_class, method.name) if kind == "static" else self._real_method(recv, method.name)
         if real is None and getattr(method, "native_addr", 0):
             # A registered native (its body is in a loaded .so) — run it on the current guest stack and let it
             # return for us, exactly like the JVM. Redirects PC; the native returns through _native_return.
@@ -254,35 +218,22 @@ class JNIEnv:
                 result = self.handler.call_static_method(method, args)
             else:
                 result = self.handler.call_method(recv, method, args)
-        except (
-            JavaException
-        ) as exc:  # a modelled Java method threw -> set the pending JNI exception
+        except JavaException as exc:  # a modelled Java method threw -> set the pending JNI exception
             self._pending_exception = self._make_exception(JavaClass(exc.class_name), exc.message)
             result = None
         self.log.jni_call("Call", f"{method.java_class.name}.{method.name}", 0)
         return self._box(ret, result)
 
-    def _dispatch_native(
-        self, method: JavaMethod, arg_types: list[str], args: list, ret: str, kind: str
-    ) -> None:
+    def _dispatch_native(self, method: JavaMethod, arg_types: list[str], args: list, ret: str, kind: str) -> None:
         # Design (B): no nested emu_start (unicorn forbids it from inside a hook). Set up the native's AAPCS
         # frame on the CURRENT stack (x0=JNIEnv, x1=this/jclass, args…), make LR a one-shot return trampoline,
         # and jump to native_addr; the same emu_start runs the native, whose own JNI calls are just more traps.
         if not self._native_return_slot:
-            self._native_return_slot = self.emu.trap.alloc_slot(
-                self._native_return, "JNIEnv:native-return"
-            )
-        saved_lr, saved_sp = (
-            self.emu.lr,
-            self.emu.sp,
-        )  # where Call*Method returns; SP to restore after the native
-        ref_mark = (
-            self.dvm.local_mark()
-        )  # the native's local-ref frame (jclass + object args live here)
+            self._native_return_slot = self.emu.trap.alloc_slot(self._native_return, "JNIEnv:native-return")
+        saved_lr, saved_sp = (self.emu.lr, self.emu.sp)  # where Call*Method returns; SP to restore after the native
+        ref_mark = self.dvm.local_mark()  # the native's local-ref frame (jclass + object args live here)
         this_ref = self.dvm.add_local(method.java_class) if kind == "static" else self._arg(1)
-        self.emu._marshal_native(
-            int(this_ref), arg_types, args
-        )  # x0=env, x1=this, ints in x2.., fp in v0.., spill
+        self.emu._marshal_native(int(this_ref), arg_types, args)  # x0=env, x1=this, ints in x2.., fp in v0.., spill
         self.emu.lr = self._native_return_slot
         self._native_calls.append((ret, saved_lr, saved_sp, ref_mark))
         self.emu.pc = method.native_addr
@@ -290,15 +241,11 @@ class JNIEnv:
     def _native_return(self) -> None:
         ret, saved_lr, saved_sp, ref_mark = self._native_calls.pop()
         if ret in ("L", "["):  # promote the returned local ref out of the native's frame
-            obj = self.dvm.get(
-                self.emu.ret
-            )  # resolve BEFORE releasing (release invalidates the handle)
+            obj = self.dvm.get(self.emu.ret)  # resolve BEFORE releasing (release invalidates the handle)
             self.dvm.local_release(ref_mark)
             self.emu.ret = self.dvm.add_local(obj) if obj is not None else 0
         else:
-            self.dvm.local_release(
-                ref_mark
-            )  # int/long/bool/float/double/void: value already in x0 / v0
+            self.dvm.local_release(ref_mark)  # int/long/bool/float/double/void: value already in x0 / v0
         self.emu.sp = saved_sp  # undo the arg spill; resume the Call*Method caller
         self.emu.pc = saved_lr
 
@@ -307,11 +254,7 @@ class JNIEnv:
         if backing is None:
             return JNIEnv._MISS
         raw = inspect.getattr_static(backing, name, JNIEnv._MISS)
-        if (
-            raw is JNIEnv._MISS
-            or callable(raw)
-            or isinstance(raw, (staticmethod, classmethod, property))
-        ):
+        if raw is JNIEnv._MISS or callable(raw) or isinstance(raw, (staticmethod, classmethod, property)):
             return JNIEnv._MISS
         return getattr(backing, name)
 
@@ -319,9 +262,7 @@ class JNIEnv:
         field = self.dvm.member(self._arg(2))
         if not isinstance(field, JavaField):
             return self._box(letter, None)
-        if (
-            not static and field.name == "artMethod"
-        ):  # ART introspection: Executable.artMethod : J (core-owned)
+        if not static and field.name == "artMethod":  # ART introspection: Executable.artMethod : J (core-owned)
             method = self.dvm.get(self._arg(1))
             if isinstance(method, JavaMethod):
                 return self._box("J", self.dvm.art_method_ptr(method))
@@ -339,11 +280,7 @@ class JNIEnv:
         if letter in "FD":
             if self.emu.arch.cpu_arch is CpuArch.ARM:
                 source = RegisterArgs32(self.emu, 3)
-                value = (
-                    source.real()
-                    if letter == "D"
-                    else struct.unpack("<f", struct.pack("<I", source.integer(False)))[0]
-                )
+                value = source.real() if letter == "D" else struct.unpack("<f", struct.pack("<I", source.integer(False)))[0]
             else:
                 value = self._as_real(letter, self.emu.backend.reg_read(Arm64Reg.Q[0]))
         else:
@@ -358,11 +295,7 @@ class JNIEnv:
         dvm_class, method = self.dvm.get(self._arg(1)), self.dvm.member(self._arg(2))
         if not isinstance(dvm_class, JavaClass):
             return 0
-        args = (
-            self._read_call_args(self.parse_arg_types(method.signature), mode, 3)
-            if isinstance(method, JavaMethod)
-            else []
-        )
+        args = self._read_call_args(self.parse_arg_types(method.signature), mode, 3) if isinstance(method, JavaMethod) else []
         backing = dvm_class.backing
         if backing is not None and hasattr(backing, "jni_construct"):
             obj = backing.jni_construct(args)
@@ -417,9 +350,7 @@ class JNIEnv:
             elem = self._ELEM_SIZE[letter]
             data = self.emu.mem.read(buf, count * elem)
             begin = start * elem
-            arr = (
-                obj.value if isinstance(obj.value, bytearray) else bytearray(obj.value)
-            )  # mutate in place if shared
+            arr = obj.value if isinstance(obj.value, bytearray) else bytearray(obj.value)  # mutate in place if shared
             if begin + len(data) > len(arr):
                 arr.extend(b"\x00" * (begin + len(data) - len(arr)))
             arr[begin : begin + len(data)] = data
@@ -701,13 +632,7 @@ class JNIEnv:
 
     def _is_assignable_from(self) -> int | None:
         source, target = self.dvm.get(self._arg(1)), self.dvm.get(self._arg(2))
-        return (
-            1
-            if isinstance(source, JavaClass)
-            and isinstance(target, JavaClass)
-            and target.isAssignableFrom(source)
-            else 0
-        )
+        return 1 if isinstance(source, JavaClass) and isinstance(target, JavaClass) and target.isAssignableFrom(source) else 0
 
     def _to_reflected_field(self) -> int | None:
         member = self.dvm.member(self._arg(2))
@@ -725,11 +650,7 @@ class JNIEnv:
 
     def _make_exception(self, klass: JavaClass, message: str) -> object:
         backing = klass.backing
-        return (
-            backing(message)
-            if backing is not None and issubclass(backing, JavaThrowable)
-            else JavaObject(klass, message)
-        )
+        return backing(message) if backing is not None and issubclass(backing, JavaThrowable) else JavaObject(klass, message)
 
     def take_pending_exception(self) -> object | None:
         exception, self._pending_exception = self._pending_exception, None
@@ -1462,27 +1383,19 @@ class JNIEnv:
 
     def _new_direct_byte_buffer(self) -> int | None:
         address, capacity = self._arg(1), self._arg(2)
-        ref = self.dvm.add_local(
-            JavaObject(JavaClass("java/nio/DirectByteBuffer"), (address, capacity))
-        )
-        self.log.jni_call(
-            "NewDirectByteBuffer", f"{address:#x}+{capacity:#x}", ref
-        )  # a common in-memory-DEX carrier
+        ref = self.dvm.add_local(JavaObject(JavaClass("java/nio/DirectByteBuffer"), (address, capacity)))
+        self.log.jni_call("NewDirectByteBuffer", f"{address:#x}+{capacity:#x}", ref)  # a common in-memory-DEX carrier
         return ref
 
     def _get_direct_buffer_address(self) -> int | None:
         obj = self.dvm.get(self._arg(1))
-        address = (
-            obj.value[0] if isinstance(obj, JavaObject) and isinstance(obj.value, tuple) else 0
-        )
+        address = obj.value[0] if isinstance(obj, JavaObject) and isinstance(obj.value, tuple) else 0
         self.log.jni_call("GetDirectBufferAddress", hex(self._arg(1)), address)
         return address
 
     def _get_direct_buffer_capacity(self) -> int | None:
         obj = self.dvm.get(self._arg(1))
-        capacity = (
-            obj.value[1] if isinstance(obj, JavaObject) and isinstance(obj.value, tuple) else -1
-        )
+        capacity = obj.value[1] if isinstance(obj, JavaObject) and isinstance(obj.value, tuple) else -1
         self.log.jni_call("GetDirectBufferCapacity", hex(self._arg(1)), capacity)
         return capacity
 

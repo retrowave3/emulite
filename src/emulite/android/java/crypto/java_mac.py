@@ -14,14 +14,7 @@ from emulite.android.java.lang.java_object import JavaObject
 
 class JavaMac(JavaObject):
     JAVA_NAME: ClassVar[str] = "javax/crypto/Mac"
-    _DIGESTS = {
-        "HMACSHA1": "sha1",
-        "HMACSHA224": "sha224",
-        "HMACSHA256": "sha256",
-        "HMACSHA384": "sha384",
-        "HMACSHA512": "sha512",
-        "HMACMD5": "md5",
-    }
+    _DIGESTS = {"HMACSHA1": "sha1", "HMACSHA224": "sha224", "HMACSHA256": "sha256", "HMACSHA384": "sha384", "HMACSHA512": "sha512", "HMACMD5": "md5"}
 
     def __init__(self, algorithm: str = "HmacSHA256"):
         super().__init__()
@@ -39,11 +32,7 @@ class JavaMac(JavaObject):
         return self._algorithm
 
     def init(self, key: object, *params: object) -> None:
-        self._key = (
-            bytes(key.getEncoded().value)
-            if hasattr(key, "getEncoded")
-            else bytes(getattr(key, "value", b""))
-        )
+        self._key = bytes(key.getEncoded().value) if hasattr(key, "getEncoded") else bytes(getattr(key, "value", b""))
         self._hmac = hmac.new(self._key, digestmod=self._digestmod)
         return None
 

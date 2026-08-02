@@ -2,18 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from unicorn import (
-    UC_ARCH_ARM,
-    UC_ARCH_ARM64,
-    UC_HOOK_CODE,
-    UC_HOOK_INTR,
-    UC_HOOK_MEM_READ,
-    UC_HOOK_MEM_UNMAPPED,
-    UC_HOOK_MEM_WRITE,
-    UC_MODE_ARM,
-    Uc,
-    UcError,
-)
+from unicorn import UC_ARCH_ARM, UC_ARCH_ARM64, UC_HOOK_CODE, UC_HOOK_INTR, UC_HOOK_MEM_READ, UC_HOOK_MEM_UNMAPPED, UC_HOOK_MEM_WRITE, UC_MODE_ARM, Uc, UcError
 from unicorn.arm64_const import UC_ARM64_REG_CP_REG, UC_CPU_ARM64_MAX
 
 from emulite.common.errors import EmulatorCrashed
@@ -23,13 +12,7 @@ from emulite.cpu.registers.arm64_reg import Arm64Reg
 
 
 class UnicornBackend(Backend):
-    _HOOK_IDS = {
-        HookType.INTR: UC_HOOK_INTR,
-        HookType.CODE: UC_HOOK_CODE,
-        HookType.MEM_READ: UC_HOOK_MEM_READ,
-        HookType.MEM_WRITE: UC_HOOK_MEM_WRITE,
-        HookType.MEM_FAULT: UC_HOOK_MEM_UNMAPPED,
-    }
+    _HOOK_IDS = {HookType.INTR: UC_HOOK_INTR, HookType.CODE: UC_HOOK_CODE, HookType.MEM_READ: UC_HOOK_MEM_READ, HookType.MEM_WRITE: UC_HOOK_MEM_WRITE, HookType.MEM_FAULT: UC_HOOK_MEM_UNMAPPED}
     _UC = {CpuArch.ARM: (UC_ARCH_ARM, UC_MODE_ARM), CpuArch.ARM64: (UC_ARCH_ARM64, UC_MODE_ARM)}
 
     def __init__(self, cpu_arch: CpuArch = CpuArch.ARM64) -> None:
@@ -74,9 +57,7 @@ class UnicornBackend(Backend):
         try:
             self._uc.mem_protect(address, size, int(perms))
         except UcError as e:
-            raise EmulatorCrashed(
-                f"mem_protect {size:#x} bytes at {address:#x} faulted: {e}"
-            ) from e
+            raise EmulatorCrashed(f"mem_protect {size:#x} bytes at {address:#x} faulted: {e}") from e
 
     def mem_unmap(self, address: int, size: int) -> None:
         try:
@@ -94,13 +75,9 @@ class UnicornBackend(Backend):
         try:
             self._uc.mem_write(address, data)
         except UcError as e:
-            raise EmulatorCrashed(
-                f"mem_write {len(data)} bytes at {address:#x} faulted: {e}"
-            ) from e
+            raise EmulatorCrashed(f"mem_write {len(data)} bytes at {address:#x} faulted: {e}") from e
 
-    def hook_add(
-        self, hook_type: HookType, callback: Callable, begin: int = 1, end: int = 0
-    ) -> int:
+    def hook_add(self, hook_type: HookType, callback: Callable, begin: int = 1, end: int = 0) -> int:
         return self._uc.hook_add(self._HOOK_IDS[hook_type], callback, begin=begin, end=end)
 
     def hook_del(self, handle: int) -> None:

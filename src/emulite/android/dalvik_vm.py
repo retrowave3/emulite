@@ -192,19 +192,11 @@ class DalvikVM:
         elif libart is not None:
             data = libart
         else:
-            raise EmulatorCrashed(
-                f"ArtMethod.data_ for framework method {method.java_class.name}.{method.name} "
-                f"needs libart.so loaded (ART anti-hook introspection)"
-            )
+            raise EmulatorCrashed(f"ArtMethod.data_ for framework method {method.java_class.name}.{method.name} needs libart.so loaded (ART anti-hook introspection)")
         flags = self._ACC_PUBLIC | (self._ACC_STATIC if method.is_static else 0) | self._ACC_NATIVE
         index = len(self._art_methods)
         ptr = self._art_area.create(
-            declaring_class=zlib.crc32(method.java_class.name.encode()) | 1,
-            access_flags=flags,
-            dex_index=index,
-            method_index=index,
-            data=data,
-            entry=libart if libart is not None else data,
+            declaring_class=zlib.crc32(method.java_class.name.encode()) | 1, access_flags=flags, dex_index=index, method_index=index, data=data, entry=libart if libart is not None else data
         )
         self._art_methods[id(method)] = ptr
         return ptr

@@ -38,9 +38,7 @@ class JavaMessageDigest(JavaObject):
         if data:  # digest(byte[]) == update then digest
             self._digest.update(self._raw_bytes(data[0]))
         out = self._digest.digest()
-        self._digest = hashlib.new(
-            self._algorithm.lower().replace("-", "")
-        )  # digest() resets the engine
+        self._digest = hashlib.new(self._algorithm.lower().replace("-", ""))  # digest() resets the engine
         return JavaObject(JavaClass("[B"), bytearray(out))
 
     def reset(self) -> None:

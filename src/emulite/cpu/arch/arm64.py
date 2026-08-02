@@ -36,16 +36,12 @@ class Arm64Arch(Arch):
         return self._RET
 
     def enable_fpu(self, backend: Backend) -> None:
-        backend.reg_write(
-            Arm64Reg.CPACR_EL1, backend.reg_read(Arm64Reg.CPACR_EL1) | self._CPACR_FPEN
-        )
+        backend.reg_write(Arm64Reg.CPACR_EL1, backend.reg_read(Arm64Reg.CPACR_EL1) | self._CPACR_FPEN)
 
     def seed_system_registers(self, backend: Backend, device: object) -> None:
         backend.write_sysreg(*self._MIDR_EL1, device.midr_el1())
 
-    def setup_tls(
-        self, backend: Backend, mem: object, base: int, stack_guard: int, errno_addr: int
-    ) -> None:
+    def setup_tls(self, backend: Backend, mem: object, base: int, stack_guard: int, errno_addr: int) -> None:
         # bionic layout, 8-byte slots:
         mem.write_u64(base + 0 * 8, base)  # TLS_SLOT_SELF
         mem.write_u64(base + 1 * 8, base + 0x100)  # TLS_SLOT_THREAD_ID (pthread_internal*)

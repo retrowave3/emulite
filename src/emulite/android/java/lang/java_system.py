@@ -41,9 +41,7 @@ class JavaSystem(JavaObject):
 
     @staticmethod
     def identityHashCode(obj: object) -> int:
-        return (
-            0 if obj is None else id(obj) & 0x7FFFFFFF
-        )  # the identity hash, ignoring any override
+        return 0 if obj is None else id(obj) & 0x7FFFFFFF  # the identity hash, ignoring any override
 
     @staticmethod
     def lineSeparator() -> str:

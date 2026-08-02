@@ -13,9 +13,7 @@ class SocketIO(FileIO):
         super().__init__("<socket>", OpenFlag.O_RDWR)
         self.domain, self.sock_type, self.protocol = domain, sock_type, protocol
         self.peer: "SocketIO | None" = None
-        self.handler: "Callable[[bytes], bytes] | None" = (
-            None  # a named-socket sink (logdw/dns/...)
-        )
+        self.handler: "Callable[[bytes], bytes] | None" = None  # a named-socket sink (logdw/dns/...)
         self.inbox = bytearray()
         self.connected_path: str | None = None
 

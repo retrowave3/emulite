@@ -36,20 +36,13 @@ class LogCategory(enum.IntFlag):
 
 
 class Logger:
-    def __init__(
-        self,
-        categories: LogCategory = LogCategory.Default,
-        level: LogLevel = LogLevel.DEBUG,
-        sink: Optional[Callable[[LogLevel, LogCategory, str], None]] = None,
-    ):
+    def __init__(self, categories: LogCategory = LogCategory.Default, level: LogLevel = LogLevel.DEBUG, sink: Optional[Callable[[LogLevel, LogCategory, str], None]] = None):
         self.categories = categories
         self.min_level = level
         self.sink = sink if sink is not None else self._default_sink
 
     def is_enabled(self, category: LogCategory, level: LogLevel) -> bool:
-        return (
-            self.sink is not None and level >= self.min_level and bool(self.categories & category)
-        )
+        return self.sink is not None and level >= self.min_level and bool(self.categories & category)
 
     def enable(self, category: LogCategory) -> None:
         self.categories |= category
@@ -99,22 +92,16 @@ class Logger:
         self._emit(LogCategory.JNI, LogLevel.DEBUG, "%s(%s) => %#x", (func, args, result))
 
     def syscall_call(self, name: str, nr: int, args: str, result: int) -> None:
-        self._emit(
-            LogCategory.Syscall, LogLevel.DEBUG, "%s(%d)(%s) => %d", (name, nr, args, result)
-        )
+        self._emit(LogCategory.Syscall, LogLevel.DEBUG, "%s(%d)(%s) => %d", (name, nr, args, result))
 
     def libc_call(self, func: str, args: str, result: int) -> None:
         self._emit(LogCategory.Libc, LogLevel.DEBUG, "%s(%s) => %#x", (func, args, result))
 
     def library_load(self, name: str, base: int, size: int) -> None:
-        self._emit(
-            LogCategory.Loader, LogLevel.INFO, "loaded %s @ %#x (size=%#x)", (name, base, size)
-        )
+        self._emit(LogCategory.Loader, LogLevel.INFO, "loaded %s @ %#x (size=%#x)", (name, base, size))
 
     def crash_event(self, reason: str, pc: int, details: str) -> None:
-        self._emit(
-            LogCategory.Crash, LogLevel.ERROR, "CRASH: %s at %#x - %s", (reason, pc, details)
-        )
+        self._emit(LogCategory.Crash, LogLevel.ERROR, "CRASH: %s at %#x - %s", (reason, pc, details))
 
     @staticmethod
     def _default_sink(level: LogLevel, category: LogCategory, text: str) -> None:

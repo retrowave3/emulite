@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5"]
+dev = ["mypy>=1.11", "pytest>=8", "ruff>=0.5"]
 
 [project.urls]
 Repository = "https://github.com/retrowave3/emulite"
@@ -27,6 +27,7 @@ packages = ["src/emulite"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "rootfs/android" = "emulite/rootfs/android"
+"src/emulite/py.typed" = "emulite/py.typed"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -37,4 +38,23 @@ include = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 200
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+files = ["src/emulite/hooks"]
+follow_imports = "silent"
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["capstone", "capstone.*"]
+ignore_missing_imports = true

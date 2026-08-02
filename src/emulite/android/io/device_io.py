@@ -34,9 +34,7 @@ class DeviceIO(BufferBackedIO):
     def ioctl(self, request: int, arg: int, fs: object) -> int:
         if self.kind == "binder":
             if self._binder is None:
-                self._binder = BinderDriver(
-                    fs._emu
-                )  # fs is the AndroidFileSystem (holds the emulator)
+                self._binder = BinderDriver(fs._emu)  # fs is the AndroidFileSystem (holds the emulator)
             return self._binder.ioctl(request, arg)
         return -Errno.ENOTTY
 

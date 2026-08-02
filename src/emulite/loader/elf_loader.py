@@ -21,15 +21,7 @@ class ElfLoader:
     _T = lief.ELF.Relocation.TYPE
     _TAG = lief.ELF.DynamicEntry.TAG
     _MACHINE = {"arm64": lief.ELF.ARCH.AARCH64, "arm": lief.ELF.ARCH.ARM}
-    _IGNORED = tuple(
-        t
-        for t in (
-            getattr(_T, "AARCH64_NONE", None),
-            getattr(_T, "ARM_NONE", None),
-            getattr(_T, "NONE", None),
-        )
-        if t is not None
-    )
+    _IGNORED = tuple(t for t in (getattr(_T, "AARCH64_NONE", None), getattr(_T, "ARM_NONE", None), getattr(_T, "NONE", None)) if t is not None)
     _RELOC = {
         "arm64": {
             "relative": _T.AARCH64_RELATIVE,
@@ -48,17 +40,8 @@ class ElfLoader:
             "rela": False,
             "symbolic": (_T.ARM_GLOB_DAT, _T.ARM_ABS32, _T.ARM_JUMP_SLOT),
             "tls_desc": getattr(_T, "ARM_TLS_DESC", None),
-            "tls_offset": tuple(
-                t
-                for t in (
-                    getattr(_T, "ARM_TLS_TPOFF32", None),
-                    getattr(_T, "ARM_TLS_DTPOFF32", None),
-                )
-                if t is not None
-            ),
-            "tls_module": tuple(
-                t for t in (getattr(_T, "ARM_TLS_DTPMOD32", None),) if t is not None
-            ),
+            "tls_offset": tuple(t for t in (getattr(_T, "ARM_TLS_TPOFF32", None), getattr(_T, "ARM_TLS_DTPOFF32", None)) if t is not None),
+            "tls_module": tuple(t for t in (getattr(_T, "ARM_TLS_DTPMOD32", None),) if t is not None),
         },
     }
 
@@ -78,14 +61,7 @@ class ElfLoader:
             perms |= MemoryProtectionFlag.EXEC
         return perms
 
-    def __init__(
-        self,
-        backend: Backend,
-        mem: MemoryManager,
-        log: Logger,
-        rootfs: str | None = None,
-        search_paths: tuple[str, ...] = (),
-    ):
+    def __init__(self, backend: Backend, mem: MemoryManager, log: Logger, rootfs: str | None = None, search_paths: tuple[str, ...] = ()):
         self._be = backend
         self._mem = mem
         self._arch = mem.arch
@@ -107,18 +83,12 @@ class ElfLoader:
         self.resolve_fallback: Callable[[str], int | None] | None = None
         self.after_load: Callable[[], None] | None = None
 
-    def load(
-        self, path_or_name: str, is_dependency: bool = False, scan_only: bool = False
-    ) -> NativeModule:
+    def load(self, path_or_name: str, is_dependency: bool = False, scan_only: bool = False) -> NativeModule:
         name = os.path.basename(path_or_name)
         if name in self.modules:
             return self.modules[name]
         if name in self._loading:
-            self._log.loader(
-                "circular dependency on %s -> using the in-progress module",
-                name,
-                level=LogLevel.WARN,
-            )
+            self._log.loader("circular dependency on %s -> using the in-progress module", name, level=LogLevel.WARN)
             return self.modules.get(name)
         self._loading.add(name)
         try:
@@ -131,9 +101,7 @@ class ElfLoader:
                 self.after_load()
         return module
 
-    def _load(
-        self, path_or_name: str, name: str, is_dependency: bool, scan_only: bool = False
-    ) -> NativeModule:
+    def _load(self, path_or_name: str, name: str, is_dependency: bool, scan_only: bool = False) -> NativeModule:
         resolved = self._find_file(path_or_name)
         binary = lief.parse(resolved)
         expected = self._MACHINE.get(self._arch.name)
@@ -149,27 +117,14 @@ class ElfLoader:
 
         loads = [s for s in binary.segments if s.type == lief.ELF.Segment.TYPE.LOAD]
         span = MemoryLayout.page_align_up(max(s.virtual_address + s.virtual_size for s in loads))
-        seg_align = max(
-            (int(s.alignment) for s in loads if s.alignment > 1), default=MemoryLayout.PAGE_SIZE
-        )
+        seg_align = max((int(s.alignment) for s in loads if s.alignment > 1), default=MemoryLayout.PAGE_SIZE)
         base = self._mem.reserve_lib(span, align=seg_align)
         segments = self._map_segments(name, loads, base)
 
-        module = LinuxModule(
-            name,
-            path_or_name,
-            base,
-            span,
-            dependencies=needed,
-            segments=segments,
-            mem=self._mem,
-            emu=self.emu,
-        )
+        module = LinuxModule(name, path_or_name, base, span, dependencies=needed, segments=segments, mem=self._mem, emu=self.emu)
         module.phdr_addr = base + binary.header.program_header_offset
         module.phnum = binary.header.numberof_segments
-        dynamic = next(
-            (s for s in binary.segments if s.type == lief.ELF.Segment.TYPE.DYNAMIC), None
-        )
+        dynamic = next((s for s in binary.segments if s.type == lief.ELF.Segment.TYPE.DYNAMIC), None)
         if dynamic is not None:
             module.dynamic_addr = base + dynamic.virtual_address
         module.entry_point = base + binary.header.entrypoint
@@ -191,9 +146,7 @@ class ElfLoader:
         self._data_symbols[name] = address
         self._log.loader("add_data_symbol %s => %#x", name, address)
 
-    def create_virtual_module(
-        self, name: str, symbols: "dict[str, int] | None" = None
-    ) -> "VirtualModule":
+    def create_virtual_module(self, name: str, symbols: "dict[str, int] | None" = None) -> "VirtualModule":
         module = VirtualModule(name=name, path=name, base=0, size=0)
         for sym_name, address in (symbols or {}).items():
             module.exports[sym_name] = address
@@ -217,9 +170,7 @@ class ElfLoader:
         loads = sorted(loads, key=lambda s: s.virtual_address)
         page = MemoryLayout.PAGE_SIZE
         span_lo = MemoryLayout.page_align_down(base + loads[0].virtual_address)
-        span_hi = MemoryLayout.page_align_up(
-            base + max(s.virtual_address + s.virtual_size for s in loads)
-        )
+        span_hi = MemoryLayout.page_align_up(base + max(s.virtual_address + s.virtual_size for s in loads))
         page_perms = {addr: MemoryProtectionFlag.NONE for addr in range(span_lo, span_hi, page)}
         for seg in loads:
             lo = MemoryLayout.page_align_down(base + seg.virtual_address)
@@ -243,30 +194,19 @@ class ElfLoader:
             self._mem.protect(start, size, perms)
         return segments
 
-    def _register_exports(
-        self, binary: "lief.Binary", base: int, module: NativeModule, expose: bool = True
-    ) -> None:
+    def _register_exports(self, binary: "lief.Binary", base: int, module: NativeModule, expose: bool = True) -> None:
         for sym in binary.dynamic_symbols:
             if not sym.name:
                 continue
             undefined = bool(sym.imported)
             is_weak = sym.binding == lief.ELF.Symbol.BINDING.WEAK
             module.symbols.append(
-                Symbol(
-                    sym.name,
-                    0 if undefined else base + sym.value,
-                    size=int(sym.size),
-                    sym_type=self._enum_name(sym.type),
-                    binding=self._enum_name(sym.binding),
-                    undefined=undefined,
-                )
+                Symbol(sym.name, 0 if undefined else base + sym.value, size=int(sym.size), sym_type=self._enum_name(sym.type), binding=self._enum_name(sym.binding), undefined=undefined)
             )
             if sym.exported:
                 addr = base + sym.value
                 module.exports[sym.name] = addr
-                if expose and (
-                    sym.name not in self._exports or (self._weak[sym.name] and not is_weak)
-                ):
+                if expose and (sym.name not in self._exports or (self._weak[sym.name] and not is_weak)):
                     self._exports[sym.name] = addr
                     self._weak[sym.name] = is_weak
 
@@ -286,11 +226,7 @@ class ElfLoader:
 
     def _tlsdesc_resolver(self) -> int:
         if self._tlsdesc_stub is None:
-            code = (
-                struct.pack("<II", 0xE3A00000, 0xE12FFF1E)
-                if self._arch.pointer_size == 4
-                else struct.pack("<II", 0xD2800000, 0xD65F03C0)
-            )  # arm: mov r0,#0;bx lr / arm64: mov x0,#0;ret
+            code = struct.pack("<II", 0xE3A00000, 0xE12FFF1E) if self._arch.pointer_size == 4 else struct.pack("<II", 0xD2800000, 0xD65F03C0)  # arm: mov r0,#0;bx lr / arm64: mov x0,#0;ret
             page = self._mem.mmap(len(code), perms=RX, label="tlsdesc-resolver")
             self._mem.write(page, code)
             self._tlsdesc_stub = page
@@ -320,30 +256,14 @@ class ElfLoader:
                 if target is None:
                     self.unresolved.append((module.name, symbol_name or "?"))
                     if symbol_name:
-                        self.deferred_relocs.append(
-                            (module, where, symbol_name, reloc.type, addend)
-                        )
-                    is_weak = (
-                        reloc.symbol is not None
-                        and reloc.symbol.binding == lief.ELF.Symbol.BINDING.WEAK
-                    )
+                        self.deferred_relocs.append((module, where, symbol_name, reloc.type, addend))
+                    is_weak = reloc.symbol is not None and reloc.symbol.binding == lief.ELF.Symbol.BINDING.WEAK
                     if is_weak or not symbol_name:
-                        self._log.loader(
-                            "unresolved WEAK %s in %s -> 0",
-                            symbol_name,
-                            module.name,
-                            level=LogLevel.WARN,
-                        )
+                        self._log.loader("unresolved WEAK %s in %s -> 0", symbol_name, module.name, level=LogLevel.WARN)
                         value = 0
                     else:
                         value = self._mem.poison_pointer(f"{module.name}:{symbol_name}")
-                        self._log.loader(
-                            "unresolved STRONG %s in %s -> poison %#x (faults if used)",
-                            symbol_name,
-                            module.name,
-                            value,
-                            level=LogLevel.ERROR,
-                        )
+                        self._log.loader("unresolved STRONG %s in %s -> poison %#x (faults if used)", symbol_name, module.name, value, level=LogLevel.ERROR)
                 else:
                     value = target if reloc.type == dialect["jump_slot"] else target + addend
             elif reloc.type == dialect["irelative"]:
@@ -352,12 +272,7 @@ class ElfLoader:
             elif reloc.type == dialect["tls_desc"]:
                 write_word(where, self._tlsdesc_resolver())
                 write_word(where + pointer_size, 0)
-                self._log.loader(
-                    "TLSDESC @ %#x in %s -> benign resolver (per-module TLS not modelled)",
-                    where,
-                    module.name,
-                    level=LogLevel.WARN,
-                )
+                self._log.loader("TLSDESC @ %#x in %s -> benign resolver (per-module TLS not modelled)", where, module.name, level=LogLevel.WARN)
                 continue
             elif reloc.type in dialect["tls_module"]:
                 value = 1
@@ -366,10 +281,7 @@ class ElfLoader:
             elif reloc.type in self._IGNORED:
                 continue
             else:
-                raise EmuliteError(
-                    f"unhandled relocation {reloc.type!r} @ {where:#x} in {module.name} — "
-                    f"emulite refuses to silently skip it (implement this reloc type)"
-                )
+                raise EmuliteError(f"unhandled relocation {reloc.type!r} @ {where:#x} in {module.name} — emulite refuses to silently skip it (implement this reloc type)")
             write_word(where, value)
 
     def resolve_pending_symbols(self) -> None:
@@ -396,40 +308,22 @@ class ElfLoader:
         fini = binary.get(self._TAG.FINI)
         if fini is not None:
             module.fini = base + fini.value
-        module.init_array = self._read_ptr_table(
-            binary, base, self._TAG.INIT_ARRAY, self._TAG.INIT_ARRAYSZ
-        )
-        module.fini_array = self._read_ptr_table(
-            binary, base, self._TAG.FINI_ARRAY, self._TAG.FINI_ARRAYSZ
-        )
-        module.preinit_array = self._read_ptr_table(
-            binary, base, self._TAG.PREINIT_ARRAY, self._TAG.PREINIT_ARRAYSZ
-        )
+        module.init_array = self._read_ptr_table(binary, base, self._TAG.INIT_ARRAY, self._TAG.INIT_ARRAYSZ)
+        module.fini_array = self._read_ptr_table(binary, base, self._TAG.FINI_ARRAY, self._TAG.FINI_ARRAYSZ)
+        module.preinit_array = self._read_ptr_table(binary, base, self._TAG.PREINIT_ARRAY, self._TAG.PREINIT_ARRAYSZ)
         if module.init or module.init_array or module.fini or module.fini_array:
             self._log.loader(
-                "%s init=%#x init_array=%d fini=%#x fini_array=%d preinit=%d",
-                module.name,
-                module.init,
-                len(module.init_array),
-                module.fini,
-                len(module.fini_array),
-                len(module.preinit_array),
+                "%s init=%#x init_array=%d fini=%#x fini_array=%d preinit=%d", module.name, module.init, len(module.init_array), module.fini, len(module.fini_array), len(module.preinit_array)
             )
 
-    def _read_ptr_table(
-        self, binary: "lief.Binary", base: int, array_tag: object, size_tag: object
-    ) -> list[int]:
+    def _read_ptr_table(self, binary: "lief.Binary", base: int, array_tag: object, size_tag: object) -> list[int]:
         array, size = binary.get(array_tag), binary.get(size_tag)
         if array is None or size is None:
             return []
         pointer_size = self._arch.pointer_size
         read_word = self._mem.read_u64 if pointer_size == 8 else self._mem.read_u32
         empty = 0xFFFFFFFFFFFFFFFF if pointer_size == 8 else 0xFFFFFFFF
-        return [
-            ptr
-            for i in range(size.value // pointer_size)
-            if (ptr := read_word(base + array.value + i * pointer_size)) not in (0, empty)
-        ]
+        return [ptr for i in range(size.value // pointer_size) if (ptr := read_word(base + array.value + i * pointer_size)) not in (0, empty)]
 
     def _is_app_shipped(self, resolved: str) -> bool:
         if not self._rootfs:
@@ -443,11 +337,7 @@ class ElfLoader:
         name = os.path.basename(path_or_name)
         candidates = []
         if self._rootfs:
-            subs = (
-                ("system/lib", "vendor/lib", "lib", ".")
-                if self._arch.cpu_arch is CpuArch.ARM
-                else ("system/lib64", "vendor/lib64", "lib64", "system/lib", ".")
-            )
+            subs = ("system/lib", "vendor/lib", "lib", ".") if self._arch.cpu_arch is CpuArch.ARM else ("system/lib64", "vendor/lib64", "lib64", "system/lib", ".")
             for sub in subs:
                 candidates.append(os.path.join(self._rootfs, sub, name))
         candidates += [os.path.join(d, name) for d in self._search]

@@ -22,9 +22,7 @@ class MemoryManager:
         self._heap = self._layout.HEAP_BASE  # brk cursor
         self._mmap = self._layout.MMAP_BASE  # anonymous-mmap cursor
         self._lib = self._layout.LIB_BASE  # module-placement cursor
-        self._poison = (
-            self._layout.POISON_BASE
-        )  # unresolved-strong-symbol poison cursor (never mapped)
+        self._poison = self._layout.POISON_BASE  # unresolved-strong-symbol poison cursor (never mapped)
         self._errno_addr = 0
         self._regions: list[MemoryRegion] = []
         self.argc = 0
@@ -35,19 +33,10 @@ class MemoryManager:
     def arch(self) -> "Arch":
         return self._arch
 
-    def map(
-        self,
-        address: int,
-        size: int,
-        perms: MemoryProtectionFlag = RW,
-        label: str = "",
-        replace: bool = False,
-    ) -> None:
+    def map(self, address: int, size: int, perms: MemoryProtectionFlag = RW, label: str = "", replace: bool = False) -> None:
         size = self._layout.page_align_up(size)
         if replace:  # MAP_FIXED semantics: discard any existing mapping
-            self._unmap_overlap(
-                address, address + size
-            )  # in [address, address+size) before mapping over it
+            self._unmap_overlap(address, address + size)  # in [address, address+size) before mapping over it
         self._be.mem_map(address, size, perms)
         self._record(address, size, perms, label)
         self._log.memory("map   %#x..%#x perms=%d %s", address, address + size, perms, label)
@@ -62,11 +51,7 @@ class MemoryManager:
         size = self._layout.page_align_up(size + (address - start))
         address = start
         self._be.mem_protect(address, size, perms)
-        pieces = [
-            (max(r.base, address), min(r.end, address + size), r.label)
-            for r in self._regions
-            if r.base < address + size and r.end > address
-        ]
+        pieces = [(max(r.base, address), min(r.end, address + size), r.label) for r in self._regions if r.base < address + size and r.end > address]
         self._carve(address, address + size)
         for begin, end, label in pieces or [(address, address + size, "")]:
             self._regions.append(MemoryRegion(begin, end - begin, perms, label))
@@ -88,9 +73,7 @@ class MemoryManager:
                 kept.append(region)
                 continue
             if region.base < base:
-                kept.append(
-                    MemoryRegion(region.base, base - region.base, region.perms, region.label)
-                )
+                kept.append(MemoryRegion(region.base, base - region.base, region.perms, region.label))
             if region.end > end:
                 kept.append(MemoryRegion(end, region.end - end, region.perms, region.label))
         self._regions = kept
@@ -118,19 +101,14 @@ class MemoryManager:
             return hole
         end = self._mmap + need
         if end > self._layout.LIB_BASE:
-            raise EmulatorCrashed(
-                f"mmap arena exhausted: {size:#x} at {self._mmap:#x} would cross into LIB_BASE {self._layout.LIB_BASE:#x}"
-            )
+            raise EmulatorCrashed(f"mmap arena exhausted: {size:#x} at {self._mmap:#x} would cross into LIB_BASE {self._layout.LIB_BASE:#x}")
         base, self._mmap = self._mmap, end
         self.map(base, need, perms, label)
         return base
 
     def _find_mmap_hole(self, need: int) -> "int | None":
         cursor = self._layout.MMAP_BASE
-        for region in sorted(
-            (r for r in self._regions if self._layout.MMAP_BASE <= r.base < self._mmap),
-            key=lambda r: r.base,
-        ):
+        for region in sorted((r for r in self._regions if self._layout.MMAP_BASE <= r.base < self._mmap), key=lambda r: r.base):
             if region.base - cursor >= need:
                 return cursor
             cursor = max(cursor, region.end)
@@ -141,9 +119,7 @@ class MemoryManager:
         base = (self._lib + align - 1) & ~(align - 1)
         end = base + self._layout.page_align_up(size) + self._layout.PAGE_SIZE
         if end > self._layout.RETURN_SENTINEL:
-            raise EmulatorCrashed(
-                f"library arena exhausted: {size:#x} at {self._lib:#x} would cross into RETURN_SENTINEL {self._layout.RETURN_SENTINEL:#x}"
-            )
+            raise EmulatorCrashed(f"library arena exhausted: {size:#x} at {self._lib:#x} would cross into RETURN_SENTINEL {self._layout.RETURN_SENTINEL:#x}")
         self._lib = end
         return base
 
@@ -159,21 +135,15 @@ class MemoryManager:
         if addr == 0:
             return self._heap
         if addr > self._layout.MMAP_BASE:
-            raise EmulatorCrashed(
-                f"brk exhausted: {addr:#x} would cross into MMAP_BASE {self._layout.MMAP_BASE:#x}"
-            )
+            raise EmulatorCrashed(f"brk exhausted: {addr:#x} would cross into MMAP_BASE {self._layout.MMAP_BASE:#x}")
         if addr > self._heap:
             self.map(self._heap, addr - self._heap, RW, "heap")
         elif addr < self._heap:  # shrink: release the freed tail so the pages
-            self.unmap(
-                addr, self._heap - addr
-            )  # and the region table don't go stale (unmap carves)
+            self.unmap(addr, self._heap - addr)  # and the region table don't go stale (unmap carves)
         self._heap = addr
         return self._heap
 
-    def setup_stack(
-        self, argv: list[str], envp: list[str], auxv: list[tuple[int, int]], stack_guard: int
-    ) -> dict[int, int]:
+    def setup_stack(self, argv: list[str], envp: list[str], auxv: list[tuple[int, int]], stack_guard: int) -> dict[int, int]:
         bottom = self._layout.STACK_TOP - self._layout.STACK_SIZE
         self.map(bottom, self._layout.STACK_SIZE, RW, "stack")
         top = self._layout.STACK_TOP - 0x100  # guard gap so reads near the top stay in-bounds
@@ -207,15 +177,7 @@ class MemoryManager:
         self.argv_ptr = sp + pointer_size
         self.envp_ptr = sp + pointer_size * (2 + len(argv))
         self._be.reg_write(self._reg.SP, sp)
-        self._log.memory(
-            "stack %#x..%#x sp=%#x argc=%d envc=%d auxc=%d",
-            bottom,
-            self._layout.STACK_TOP,
-            sp,
-            len(argv),
-            len(envp),
-            len(resolved),
-        )
+        self._log.memory("stack %#x..%#x sp=%#x argc=%d envc=%d auxc=%d", bottom, self._layout.STACK_TOP, sp, len(argv), len(envp), len(resolved))
         return resolved
 
     def setup_tls(self, stack_guard: int) -> int:
@@ -343,10 +305,7 @@ class MemoryManager:
             out += chunk
         if safe:
             return bytes(out)
-        raise EmulatorCrashed(
-            f"read_cbytes: no NUL terminator within {limit:#x} bytes at {address:#x} "
-            f"(bad pointer or non-string data)"
-        )
+        raise EmulatorCrashed(f"read_cbytes: no NUL terminator within {limit:#x} bytes at {address:#x} (bad pointer or non-string data)")
 
     def write_cstr(self, address: int, text: str) -> None:
         self.write(address, text.encode("utf-8") + b"\x00")

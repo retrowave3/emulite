@@ -15,11 +15,7 @@ class JavaStringBuilder(JavaObject):
     JAVA_NAME: ClassVar[str] = "java/lang/StringBuilder"
 
     def __init__(self, initial: object = ""):
-        text = (
-            initial.value
-            if isinstance(initial, JavaObject)
-            else (initial if isinstance(initial, str) else "")
-        )
+        text = initial.value if isinstance(initial, JavaObject) else (initial if isinstance(initial, str) else "")
         super().__init__(value=text)
 
     @classmethod
@@ -90,9 +86,7 @@ class JavaStringBuilder(JavaObject):
         return max(len(self._s()), 16)  # our buffer has no fixed capacity; report a plausible one
 
     def indexOf(self, target: object, from_index: int = 0) -> int:
-        return self._s().find(
-            target.value if isinstance(target, JavaObject) else str(target), int(from_index)
-        )
+        return self._s().find(target.value if isinstance(target, JavaObject) else str(target), int(from_index))
 
     def substring(self, start: int, end: "int | None" = None) -> JavaString:
         s = self._s()

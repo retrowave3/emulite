@@ -52,9 +52,7 @@ class JavaBigInteger(JavaObject):
         return JavaBigInteger(q if (a < 0) == (b < 0) else -q)
 
     def mod(self, other: object) -> "JavaBigInteger":
-        return JavaBigInteger(
-            int(self.value) % self._v(other)
-        )  # BigInteger.mod result is non-negative
+        return JavaBigInteger(int(self.value) % self._v(other))  # BigInteger.mod result is non-negative
 
     def remainder(self, other: object) -> "JavaBigInteger":
         a, b = int(self.value), self._v(other)
@@ -93,9 +91,7 @@ class JavaBigInteger(JavaObject):
 
     def bitLength(self) -> int:
         v = int(self.value)
-        return (
-            v if v >= 0 else -v - 1
-        ).bit_length()  # Java: length of the minimal two's-complement
+        return (v if v >= 0 else -v - 1).bit_length()  # Java: length of the minimal two's-complement
 
     def compareTo(self, other: object) -> int:
         a, b = int(self.value), self._v(other)

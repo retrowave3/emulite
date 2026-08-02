@@ -13,12 +13,7 @@ from emulite.android.java.lang.java_object import JavaObject
 class JavaClassLoader(JavaObject):
     JAVA_NAME: ClassVar[str] = "java/lang/ClassLoader"
 
-    def __init__(
-        self,
-        resolver: "Callable[[str], JavaClass]",
-        parent: "JavaClassLoader | None" = None,
-        name: str = "dalvik.system.PathClassLoader",
-    ):
+    def __init__(self, resolver: "Callable[[str], JavaClass]", parent: "JavaClassLoader | None" = None, name: str = "dalvik.system.PathClassLoader"):
         super().__init__()
         self._resolve = resolver  # bound DalvikVM.find_class: JNI name (slashes) -> JavaClass
         self._parent = parent  # delegation parent, for a faithful getParent()
@@ -45,16 +40,10 @@ class JavaClassLoader(JavaObject):
         return self._name
 
     def defineClass(self, *args: object, **kwargs: object) -> "JavaClass":
-        raise NotImplementedError(
-            "java.lang.ClassLoader.defineClass: emulite cannot load classes from bytecode"
-        )
+        raise NotImplementedError("java.lang.ClassLoader.defineClass: emulite cannot load classes from bytecode")
 
     def getResource(self, name: object) -> object:
-        raise NotImplementedError(
-            "java.lang.ClassLoader.getResource: emulite models no resource filesystem"
-        )
+        raise NotImplementedError("java.lang.ClassLoader.getResource: emulite models no resource filesystem")
 
     def getResourceAsStream(self, name: object) -> object:
-        raise NotImplementedError(
-            "java.lang.ClassLoader.getResourceAsStream: emulite models no resource filesystem"
-        )
+        raise NotImplementedError("java.lang.ClassLoader.getResourceAsStream: emulite models no resource filesystem")

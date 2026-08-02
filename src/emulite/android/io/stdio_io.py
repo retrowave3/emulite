@@ -25,11 +25,7 @@ class StdioIO(FileIO):
         if self.fd == 0:
             return -Errno.EBADF  # stdin isn't writable
         printable = all(0x20 <= b < 0x7F or b in (0x09, 0x0A, 0x0D) for b in data)
-        sys.stdout.write(
-            data.decode("utf-8", "replace")
-            if printable
-            else f"[fd{self.fd}-hex {len(data)}] {data.hex()}\n"
-        )
+        sys.stdout.write(data.decode("utf-8", "replace") if printable else f"[fd{self.fd}-hex {len(data)}] {data.hex()}\n")
         return len(data)
 
     def fstat(self) -> FileStat:

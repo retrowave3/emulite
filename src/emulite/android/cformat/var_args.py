@@ -10,9 +10,7 @@ if TYPE_CHECKING:
 
 class VarArgs(ABC):
     _WIDE_LENGTHS = ("l", "ll", "q", "z", "j", "t")
-    _SPEC = re.compile(
-        r"%([-+ #0]*)(\*|\d+)?(?:\.(\*|\d+))?(hh|h|ll|l|q|z|j|t)?([diouxXeEfFgGaAcspn%])"
-    )
+    _SPEC = re.compile(r"%([-+ #0]*)(\*|\d+)?(?:\.(\*|\d+))?(hh|h|ll|l|q|z|j|t)?([diouxXeEfFgGaAcspn%])")
 
     def __init__(self, emu: "AndroidEmulatorBase"):
         self._emu = emu
@@ -44,20 +42,12 @@ class VarArgs(ABC):
                 width = str(self.integer(False))
             if precision == "*":
                 precision = str(self.integer(False))
-            spec = (
-                "%"
-                + (flags or "")
-                + (width or "")
-                + ("." + precision if precision is not None else "")
-            )
+            spec = "%" + (flags or "") + (width or "") + ("." + precision if precision is not None else "")
             wide = length in self._WIDE_LENGTHS
             if conv in "di":
                 out.append((spec + "d") % self._signed(self.integer(wide), wide))
             elif conv in "ouxX":
-                out.append(
-                    (spec + conv)
-                    % (self.integer(wide) & (0xFFFFFFFFFFFFFFFF if wide else 0xFFFFFFFF))
-                )
+                out.append((spec + conv) % (self.integer(wide) & (0xFFFFFFFFFFFFFFFF if wide else 0xFFFFFFFF)))
             elif conv in "eEfFgGaA":
                 out.append((spec + conv) % self.real())
             elif conv == "c":

@@ -52,24 +52,14 @@ class JavaString(JavaObject):
             if not match.group(1):
                 counter[0] += 1
             arg = args[index] if 0 <= index < len(args) else None
-            flags = (
-                (match.group(2) or "").replace(",", "").replace("(", "")
-            )  # grouping/parens: dropped
+            flags = (match.group(2) or "").replace(",", "").replace("(", "")  # grouping/parens: dropped
             spec = "%" + flags + (match.group(3) or "") + (match.group(4) or "")
             lower = conversion.lower()
-            raw = (
-                arg.value
-                if isinstance(arg, JavaObject) and not isinstance(arg.value, list)
-                else arg
-            )
+            raw = arg.value if isinstance(arg, JavaObject) and not isinstance(arg.value, list) else arg
             if lower == "b":
                 return (spec + "s") % ("false" if arg is None or raw is False else "true")
             if lower == "s":
-                text = (
-                    arg.toString()
-                    if isinstance(arg, JavaObject)
-                    else ("null" if arg is None else str(raw))
-                )
+                text = arg.toString() if isinstance(arg, JavaObject) else ("null" if arg is None else str(raw))
                 return (spec + "s") % text
             if lower in "dox":
                 return (spec + conversion) % int(raw)
@@ -92,9 +82,7 @@ class JavaString(JavaObject):
                 descriptor = arg.java_class.name if arg.java_class else "[B"
                 if descriptor == "[C":  # char[] is UTF-16LE
                     return cls(bytes(payload).decode("utf-16-le", errors="replace"))
-                charset = (
-                    args[1].value if len(args) > 1 and isinstance(args[1], JavaObject) else "utf-8"
-                )
+                charset = args[1].value if len(args) > 1 and isinstance(args[1], JavaObject) else "utf-8"
                 return cls(bytes(payload).decode(cls._py_charset(charset), errors="replace"))
             if isinstance(payload, str):
                 return cls(payload)
@@ -152,11 +140,7 @@ class JavaString(JavaObject):
     def lastIndexOf(self, target: object, from_index: "int | None" = None) -> int:
         needle = chr(int(target)) if isinstance(target, int) else self._text(target)
         s = self._s()
-        return (
-            s.rfind(needle)
-            if from_index is None
-            else s.rfind(needle, 0, int(from_index) + len(needle))
-        )
+        return s.rfind(needle) if from_index is None else s.rfind(needle, 0, int(from_index) + len(needle))
 
     def startsWith(self, prefix: object, offset: int = 0) -> bool:
         return self._s().startswith(self._text(prefix), int(offset))
@@ -168,9 +152,7 @@ class JavaString(JavaObject):
         return self._text(part) in self._s()
 
     def matches(self, regex: object) -> bool:
-        return (
-            re.fullmatch(self._text(regex), self._s()) is not None
-        )  # Java-ish regex (Python engine)
+        return re.fullmatch(self._text(regex), self._s()) is not None  # Java-ish regex (Python engine)
 
     def substring(self, begin: int, end: "int | None" = None) -> "JavaString":
         s = self._s()
@@ -205,20 +187,14 @@ class JavaString(JavaObject):
     def getBytes(self, *charset: object) -> "JavaObject":
         name = self._text(charset[0]) if charset else "utf-8"
         if name.lower().replace("-", "") == "utf16":  # Java's UTF-16 is big-endian with a FE FF BOM
-            return self._byte_array(
-                b"\xfe\xff" + self._s().encode("utf-16-be")
-            )  # (Python utf-16 is host-endian)
+            return self._byte_array(b"\xfe\xff" + self._s().encode("utf-16-be"))  # (Python utf-16 is host-endian)
         return self._byte_array(self._s().encode(self._py_charset(name)))
 
     def toCharArray(self) -> "JavaObject":
-        return JavaObject(
-            JavaClass("[C"), bytearray(self._s().encode("utf-16-le"))
-        )  # 2 bytes / jchar
+        return JavaObject(JavaClass("[C"), bytearray(self._s().encode("utf-16-le")))  # 2 bytes / jchar
 
     def split(self, regex: object, limit: int = 0) -> "JavaObject":
-        parts = re.split(
-            self._text(regex), self._s(), maxsplit=(int(limit) - 1 if int(limit) > 0 else 0)
-        )
+        parts = re.split(self._text(regex), self._s(), maxsplit=(int(limit) - 1 if int(limit) > 0 else 0))
         if int(limit) == 0:
             while len(parts) > 1 and parts[-1] == "":  # Java drops trailing empty strings
                 parts.pop()

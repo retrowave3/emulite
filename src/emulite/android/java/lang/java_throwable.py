@@ -14,9 +14,7 @@ class JavaThrowable(JavaObject):
 
     def __init__(self, message: object = None, cause: "JavaThrowable | None" = None):
         super().__init__()
-        self._message = (
-            message.value if isinstance(message, JavaObject) else message
-        )  # unwrap a jstring
+        self._message = message.value if isinstance(message, JavaObject) else message  # unwrap a jstring
         self._cause = cause
 
     @classmethod

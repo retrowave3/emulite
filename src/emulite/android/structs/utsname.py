@@ -29,13 +29,6 @@ class Utsname:
     domainname: str = ""
 
     def write_to(self, mem: object, address: int) -> None:
-        fields = (
-            self.sysname,
-            self.nodename,
-            self.release,
-            self.version,
-            self.machine,
-            self.domainname,
-        )
+        fields = (self.sysname, self.nodename, self.release, self.version, self.machine, self.domainname)
         for index, value in enumerate(fields):
             mem.write_cstr(address + index * self._FIELD, value)

@@ -13,9 +13,7 @@ from emulite.android.java.lang.java_object import JavaObject
 class JavaStringTokenizer(JavaObject):
     JAVA_NAME: ClassVar[str] = "java/util/StringTokenizer"
 
-    def __init__(
-        self, text: object = "", delimiters: object = " \t\n\r\f", _return_delims: object = False
-    ):
+    def __init__(self, text: object = "", delimiters: object = " \t\n\r\f", _return_delims: object = False):
         super().__init__()
         source = text.value if isinstance(text, JavaObject) else (text or "")
         delims = delimiters.value if isinstance(delimiters, JavaObject) else delimiters
@@ -31,9 +29,7 @@ class JavaStringTokenizer(JavaObject):
 
     def nextToken(self, *_delims: object) -> str:
         if self._index >= len(self._tokens):
-            raise IndexError(
-                "java.util.StringTokenizer.nextToken: no more tokens (NoSuchElementException)"
-            )
+            raise IndexError("java.util.StringTokenizer.nextToken: no more tokens (NoSuchElementException)")
         token = self._tokens[self._index]
         self._index += 1
         return token

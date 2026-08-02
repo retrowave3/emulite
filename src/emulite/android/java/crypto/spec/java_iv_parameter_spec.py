@@ -24,6 +24,4 @@ class JavaIvParameterSpec(JavaObject):
         return cls(args[0] if args else b"")
 
     def getIV(self) -> "JavaObject":
-        return JavaObject(
-            JavaClass("[B"), bytearray(self._iv)
-        )  # a copy each call, per Java immutability
+        return JavaObject(JavaClass("[B"), bytearray(self._iv))  # a copy each call, per Java immutability

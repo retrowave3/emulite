@@ -20,20 +20,18 @@ from emulite.android.linker_debug import LinkerDebug
 from emulite.android_device import AndroidDevice
 from emulite.android_emulator import AndroidEmulatorBase
 from emulite.android_profile import AndroidProfile
-from emulite.common.errors import (
-    EmulatorCrashed,
-    JavaExceptionThrown,
-    NestedExecution,
-    SymbolMissing,
-)
+from emulite.common.errors import EmulatorCrashed, JavaExceptionThrown, NestedExecution, SymbolMissing
 from emulite.common.log import LogCategory, Logger, LogLevel
 from emulite.cpu.arch.arm64 import Arm64Arch
 from emulite.cpu.backend import Backend
 from emulite.cpu.registers.arm64_reg import Arm64Reg
 from emulite.cpu.unicorn_backend import UnicornBackend
 from emulite.hooks.disassembler import Disassembler
+from emulite.hooks.frame import Frame
+from emulite.hooks.hook_handle import HookHandle
 from emulite.hooks.hook_manager import HookManager
 from emulite.hooks.svc_trap import SvcTrap
+from emulite.hooks.types import AddressHook, CallTraceHook, CodeHook, MemoryFaultHook, MemoryHook, PostCallHook, ReplacementHook, TraceHook
 from emulite.hooks.unwinder import Unwinder
 from emulite.loader import NativeModule, Symbol
 from emulite.loader.elf_loader import ElfLoader
@@ -86,23 +84,14 @@ class AndroidEmulator64(AndroidEmulatorBase):
         self.trap = SvcTrap(self.backend, self.mem, self.log)
         self._setup_android(rootfs, strict_syscalls, syscall_handler, jni_env, java_vm)
 
-        self.loader = ElfLoader(
-            self.backend, self.mem, self.log, rootfs=rootfs, search_paths=search_paths
-        )
+        self.loader = ElfLoader(self.backend, self.mem, self.log, rootfs=rootfs, search_paths=search_paths)
         self.loader.emu = self
         self.hooks = HookManager(self)
         self.disassembler = Disassembler(self)
         self.loader.resolve_override = self.libc.resolve_override
         self.loader.resolve_fallback = self.libc.resolve_fallback
-        self.loader.after_load = (
-            self.linker_debug.rebuild
-        )  # refresh the r_debug/link_map chain post-load
-        self.log.loader(
-            "AndroidEmulator64 ready (arm64): %s on %s, rootfs=%s",
-            self.profile.package_name,
-            self.device.get("ro.product.model"),
-            rootfs,
-        )
+        self.loader.after_load = self.linker_debug.rebuild  # refresh the r_debug/link_map chain post-load
+        self.log.loader("AndroidEmulator64 ready (arm64): %s on %s, rootfs=%s", self.profile.package_name, self.device.get("ro.product.model"), rootfs)
 
     def _initial_stack(self) -> tuple[list[str], list[str], list[tuple[int, int]], int]:
         p = self.profile
@@ -125,14 +114,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
         ]
         return argv, envp, auxv, p.stack_guard
 
-    def _setup_android(
-        self,
-        rootfs: str,
-        strict_syscalls: bool,
-        syscall_handler: type[AndroidSyscallHandler64],
-        jni_env: type[JNIEnv],
-        java_vm: type[JavaVM],
-    ) -> None:
+    def _setup_android(self, rootfs: str, strict_syscalls: bool, syscall_handler: type[AndroidSyscallHandler64], jni_env: type[JNIEnv], java_vm: type[JavaVM]) -> None:
         self.vfs = AndroidFileSystem(rootfs, self)
         self.device.bind_memory(self.mem)
         self.syscalls = syscall_handler(self, strict=strict_syscalls)
@@ -151,12 +133,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
             return self.jni.version
         version = self.call(onload, self.javavm.pointer, 0)
         if version not in self._VALID_JNI_VERSIONS:
-            self.log.jni(
-                "JNI_OnLoad(%s) => %#x is not a valid JNI version",
-                module.name,
-                version,
-                level=LogLevel.WARN,
-            )
+            self.log.jni("JNI_OnLoad(%s) => %#x is not a valid JNI version", module.name, version, level=LogLevel.WARN)
         else:
             self.log.jni("JNI_OnLoad(%s) => %#x", module.name, version)
         return version
@@ -212,7 +189,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
         enriched._symbolized = True
         return enriched
 
-    def backtrace(self, max_depth: int = 64) -> list:
+    def backtrace(self, max_depth: int = 64) -> list[Frame]:
         return Unwinder(self).frames(max_depth)
 
     def add_data_symbol(self, name: str, address: int) -> None:
@@ -236,9 +213,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
         if index < len(Arm64Reg.ARG_REGS):
             self.backend.reg_write(Arm64Reg.ARG_REGS[index], value & 0xFFFFFFFFFFFFFFFF)
         else:
-            self.mem.write_u64(
-                self.sp + (index - len(Arm64Reg.ARG_REGS)) * 8, value & 0xFFFFFFFFFFFFFFFF
-            )
+            self.mem.write_u64(self.sp + (index - len(Arm64Reg.ARG_REGS)) * 8, value & 0xFFFFFFFFFFFFFFFF)
 
     @property
     def sp(self) -> int:
@@ -272,53 +247,37 @@ class AndroidEmulator64(AndroidEmulatorBase):
     def ret(self, value: int) -> None:
         self.backend.reg_write(Arm64Reg.RET_REG, value)
 
-    def hook_address(self, address: int, callback):
+    def hook_address(self, address: int, callback: AddressHook) -> HookHandle:
         return self.hooks.hook_address(address, callback)
 
-    def hook_symbol(self, symbol: str, on_call, post_call=None, module_name: str | None = None):
+    def hook_symbol(self, symbol: str, on_call: ReplacementHook, post_call: PostCallHook | None = None, module_name: str | None = None) -> HookHandle:
         return self.hooks.hook_symbol(symbol, on_call, post_call, module_name)
 
-    def hook_code(self, callback, start: int | None = None, end: int | None = None):
+    def hook_code(self, callback: CodeHook, start: int | None = None, end: int | None = None) -> HookHandle:
         return self.hooks.hook_code(callback, start, end)
 
-    def hook_module(self, callback, module_name: str | None = None):
+    def hook_module(self, callback: CodeHook, module_name: str | None = None) -> HookHandle:
         return self.hooks.hook_module(callback, module_name)
 
-    def trace_code(self, callback, start: int | None = None, end: int | None = None):
+    def trace_code(self, callback: TraceHook, start: int | None = None, end: int | None = None) -> HookHandle:
         return self.hooks.trace_code(callback, start, end)
 
-    def trace_module(self, callback, module_name: str | None = None):
+    def trace_module(self, callback: TraceHook, module_name: str | None = None) -> HookHandle:
         return self.hooks.trace_module(callback, module_name)
 
-    def replace(self, address: int, on_call, post_call=None):
+    def replace(self, address: int, on_call: ReplacementHook, post_call: PostCallHook | None = None) -> HookHandle:
         return self.hooks.replace(address, on_call, post_call)
 
-    def hook_memory(
-        self,
-        callback,
-        start: int | None = None,
-        end: int | None = None,
-        reads: bool = True,
-        writes: bool = True,
-    ):
+    def hook_memory(self, callback: MemoryHook, start: int | None = None, end: int | None = None, reads: bool = True, writes: bool = True) -> HookHandle:
         return self.hooks.hook_memory(callback, start, end, reads, writes)
 
-    def watchpoint(
-        self, address: int, callback, length: int = 8, reads: bool = True, writes: bool = True
-    ):
+    def watchpoint(self, address: int, callback: MemoryHook, length: int = 8, reads: bool = True, writes: bool = True) -> HookHandle:
         return self.hooks.watchpoint(address, callback, length, reads, writes)
 
-    def hook_mem_fault(self, callback):
+    def hook_mem_fault(self, callback: MemoryFaultHook) -> HookHandle:
         return self.hooks.hook_mem_fault(callback)
 
-    def call_trace(
-        self,
-        callback,
-        module_name: str | None = None,
-        *,
-        start: int | None = None,
-        end: int | None = None,
-    ):
+    def call_trace(self, callback: CallTraceHook, module_name: str | None = None, *, start: int | None = None, end: int | None = None) -> HookHandle:
         return self.hooks.call_trace(callback, module_name, start=start, end=end)
 
     def disassemble(self, address: int, count: int = 1, thumb: bool | None = None):
@@ -403,15 +362,10 @@ class AndroidEmulator64(AndroidEmulatorBase):
 
     def _enter_guest(self) -> None:
         if self._executing:
-            raise NestedExecution(
-                "cannot run guest code (emu.call/run) from inside a hook/handler — "
-                "redirect control with emu.pc / emu.finish instead"
-            )
+            raise NestedExecution("cannot run guest code (emu.call/run) from inside a hook/handler — redirect control with emu.pc / emu.finish instead")
         self._executing = True
 
-    def call(
-        self, target: "int | Symbol | NativePointer", *args: object, return_pointer: bool = False
-    ):
+    def call(self, target: "int | Symbol | NativePointer", *args: object, return_pointer: bool = False):
         addr = int(getattr(target, "address", target))
         values = [self._to_native_arg(v) for v in args]
         self._enter_guest()
@@ -462,9 +416,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
             self.mem.write_u64(sp + i * 8, value & 0xFFFFFFFFFFFFFFFF)
         self.backend.reg_write(Arm64Reg.SP, sp)
 
-    def _resolve_native(
-        self, class_name: str, method_name: str, signature: str, is_static: bool
-    ) -> int:
+    def _resolve_native(self, class_name: str, method_name: str, signature: str, is_static: bool) -> int:
         dvm = self.jni.dvm
         klass = dvm.find_class(class_name)
         method = dvm.member(dvm.method_id(klass, method_name, signature, is_static))
@@ -477,16 +429,12 @@ class AndroidEmulator64(AndroidEmulatorBase):
         if not fn:
             for candidate in dvm.get_all_classes():
                 if candidate.name != class_name and dvm.is_in_hierarchy(class_name, candidate):
-                    derived = dvm.member(
-                        dvm.method_id(candidate, method_name, signature, is_static)
-                    )
+                    derived = dvm.member(dvm.method_id(candidate, method_name, signature, is_static))
                     fn = getattr(derived, "native_addr", 0)
                     if fn:
                         break
         if not fn:
-            fn = self.loader.find_export(
-                JniMangler.mangle(class_name, method_name)
-            ) or self.loader.find_export(JniMangler.overloaded(class_name, method_name, signature))
+            fn = self.loader.find_export(JniMangler.mangle(class_name, method_name)) or self.loader.find_export(JniMangler.overloaded(class_name, method_name, signature))
         if not fn:
             raise SymbolMissing(f"native method {class_name}.{method_name}{signature}")
         return fn
@@ -497,17 +445,11 @@ class AndroidEmulator64(AndroidEmulatorBase):
     def registered_natives(self) -> list:
         return self.jni.dvm.registered_natives()
 
-    def call_static_native(
-        self, class_name: str, method_name: str, signature: str, *args: object
-    ) -> object:
+    def call_static_native(self, class_name: str, method_name: str, signature: str, *args: object) -> object:
         fn = self._resolve_native(class_name, method_name, signature, is_static=True)
-        return self.call_native(
-            fn, self.jni.dvm.add_local(self.jni.dvm.find_class(class_name)), signature, list(args)
-        )
+        return self.call_native(fn, self.jni.dvm.add_local(self.jni.dvm.find_class(class_name)), signature, list(args))
 
-    def call_instance_native(
-        self, instance: object, class_name: str, method_name: str, signature: str, *args: object
-    ) -> object:
+    def call_instance_native(self, instance: object, class_name: str, method_name: str, signature: str, *args: object) -> object:
         fn = self._resolve_native(class_name, method_name, signature, is_static=False)
         return self.call_native(fn, self.jni.dvm.add_local(instance), signature, list(args))
 
@@ -539,11 +481,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
         gp_index, fp_index, stack = 0, 0, []
         for letter, value in zip(arg_types, args):
             if letter in "FD":
-                bits = (
-                    struct.unpack("<Q", struct.pack("<d", float(value)))[0]
-                    if letter == "D"
-                    else struct.unpack("<I", struct.pack("<f", float(value)))[0]
-                )
+                bits = struct.unpack("<Q", struct.pack("<d", float(value)))[0] if letter == "D" else struct.unpack("<I", struct.pack("<f", float(value)))[0]
                 if fp_index < 8:
                     self.backend.reg_write(Arm64Reg.Q[fp_index], bits)
                     fp_index += 1
@@ -567,11 +505,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
             if isinstance(value, str):
                 return self.jni.dvm.add_local(JavaString(value))
             if isinstance(value, (bytes, bytearray)):
-                return self.jni.dvm.add_local(
-                    JavaObject(
-                        JavaClass("[B"), value if isinstance(value, bytearray) else bytearray(value)
-                    )
-                )
+                return self.jni.dvm.add_local(JavaObject(JavaClass("[B"), value if isinstance(value, bytearray) else bytearray(value)))
             if isinstance(value, (JavaObject, JavaClass)):
                 return self.jni.dvm.add_local(value)
             return int(value) & 0xFFFFFFFFFFFFFFFF
@@ -583,13 +517,9 @@ class AndroidEmulator64(AndroidEmulatorBase):
         if return_type == "V":
             return None
         if return_type == "F":
-            return struct.unpack(
-                "<f", struct.pack("<I", self.backend.reg_read(Arm64Reg.Q[0]) & 0xFFFFFFFF)
-            )[0]
+            return struct.unpack("<f", struct.pack("<I", self.backend.reg_read(Arm64Reg.Q[0]) & 0xFFFFFFFF))[0]
         if return_type == "D":
-            return struct.unpack(
-                "<d", struct.pack("<Q", self.backend.reg_read(Arm64Reg.Q[0]) & 0xFFFFFFFFFFFFFFFF)
-            )[0]
+            return struct.unpack("<d", struct.pack("<Q", self.backend.reg_read(Arm64Reg.Q[0]) & 0xFFFFFFFFFFFFFFFF))[0]
         value = self.backend.reg_read(Arm64Reg.RET_REG)
         if return_type in ("L", "["):
             return self._unwrap_return(self.jni.dvm.get(value))
@@ -601,10 +531,6 @@ class AndroidEmulator64(AndroidEmulatorBase):
     def _unwrap_return(obj: object) -> object:
         if isinstance(obj, JavaString):
             return obj.value
-        if (
-            isinstance(obj, JavaObject)
-            and obj.java_class is not None
-            and obj.java_class.name == "[B"
-        ):
+        if isinstance(obj, JavaObject) and obj.java_class is not None and obj.java_class.name == "[B":
             return bytes(obj.value)
         return obj

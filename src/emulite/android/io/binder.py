@@ -32,9 +32,7 @@ class BinderDriver:
 
     def __init__(self, emu: "AndroidEmulatorBase") -> None:
         self._emu = emu
-        self._replies: list[
-            tuple[bytes, list[int]]
-        ] = []  # queued (reply_parcel, flat_object_offsets) FIFO
+        self._replies: list[tuple[bytes, list[int]]] = []  # queued (reply_parcel, flat_object_offsets) FIFO
 
     def ioctl(self, request: int, arg: int) -> int:
         if request & 0xFF == self._VERSION_NR and arg:
@@ -68,12 +66,8 @@ class BinderDriver:
                 handle, code = mem.read_u32(body), mem.read_u32(body + 16)
                 dsize, dbuf = mem.read_u64(body + 32), mem.read_u64(body + 48)
                 if dsize > self._MAX_PARCEL:
-                    self._emu.log.vfs(
-                        "binder: parcel of %d bytes truncated to %d", dsize, self._MAX_PARCEL
-                    )
-                parcel = (
-                    bytes(mem.read(dbuf, min(dsize, self._MAX_PARCEL))) if dbuf and dsize else b""
-                )
+                    self._emu.log.vfs("binder: parcel of %d bytes truncated to %d", dsize, self._MAX_PARCEL)
+                parcel = bytes(mem.read(dbuf, min(dsize, self._MAX_PARCEL))) if dbuf and dsize else b""
                 self._replies.append(self._service_reply(handle, code, parcel))
             p = body + ((cmd >> 16) & 0x3FFF)
 
@@ -96,22 +90,16 @@ class BinderDriver:
             offb = mem.mmap(len(offsets) * 8)
             mem.write(offb, b"".join(struct.pack("<Q", o) for o in offsets))
         # binder_transaction_data: target, cookie, code, flags, sender_pid, sender_euid, data_size, offsets_size, buffer, offsets
-        return struct.pack(
-            "<qQIIIIQQQQ", 0, 0, 0, 0x01, 0, 0, len(data), len(offsets) * 8, buf, offb
-        )
+        return struct.pack("<qQIIIIQQQQ", 0, 0, 0, 0x01, 0, 0, len(data), len(offsets) * 8, buf, offb)
 
     def _service_reply(self, handle: int, code: int, parcel: bytes) -> tuple[bytes, list[int]]:
         if handle == 0:  # ServiceManager.getService / checkService
             service = parcel.decode("utf-16-le", "ignore").split("IServiceManager", 1)[-1]
             if "package" in service:  # PackageManager -> a real handle
-                fbo = struct.pack(
-                    "<IIQQ", self._BINDER_TYPE_HANDLE, 0x7F, self._PACKAGE_MANAGER_HANDLE, 0
-                )
+                fbo = struct.pack("<IIQQ", self._BINDER_TYPE_HANDLE, 0x7F, self._PACKAGE_MANAGER_HANDLE, 0)
                 return struct.pack("<i", 0) + fbo, [4]
             self._emu.log.vfs("binder: ServiceManager -> null for unmodelled service %r", service)
-            fbo = struct.pack(
-                "<IIQQ", self._BINDER_TYPE_BINDER, 0, 0, 0
-            )  # null strong binder = service absent
+            fbo = struct.pack("<IIQQ", self._BINDER_TYPE_BINDER, 0, 0, 0)  # null strong binder = service absent
             return struct.pack("<i", 0) + fbo, [4]
         return self._pm_reply(code, parcel), []
 

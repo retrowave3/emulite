@@ -14,19 +14,11 @@ class Mutf8:
             elif code < 0x800:
                 out += bytes((0xC0 | (code >> 6), 0x80 | (code & 0x3F)))
             elif code < 0x10000:
-                out += bytes(
-                    (0xE0 | (code >> 12), 0x80 | ((code >> 6) & 0x3F), 0x80 | (code & 0x3F))
-                )
+                out += bytes((0xE0 | (code >> 12), 0x80 | ((code >> 6) & 0x3F), 0x80 | (code & 0x3F)))
             else:
                 code -= 0x10000
                 for surrogate in (0xD800 | (code >> 10), 0xDC00 | (code & 0x3FF)):
-                    out += bytes(
-                        (
-                            0xE0 | (surrogate >> 12),
-                            0x80 | ((surrogate >> 6) & 0x3F),
-                            0x80 | (surrogate & 0x3F),
-                        )
-                    )
+                    out += bytes((0xE0 | (surrogate >> 12), 0x80 | ((surrogate >> 6) & 0x3F), 0x80 | (surrogate & 0x3F)))
         return bytes(out)
 
     @staticmethod
@@ -47,11 +39,7 @@ class Mutf8:
             elif b0 >> 4 == 0b1110 and i + 2 < n:
                 cp = ((b0 & 0x0F) << 12) | ((data[i + 1] & 0x3F) << 6) | (data[i + 2] & 0x3F)
                 if 0xD800 <= cp <= 0xDBFF and i + 5 < n:
-                    lo = (
-                        ((data[i + 3] & 0x0F) << 12)
-                        | ((data[i + 4] & 0x3F) << 6)
-                        | (data[i + 5] & 0x3F)
-                    )
+                    lo = ((data[i + 3] & 0x0F) << 12) | ((data[i + 4] & 0x3F) << 6) | (data[i + 5] & 0x3F)
                     if 0xDC00 <= lo <= 0xDFFF:
                         out.append(chr(0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)))
                         i += 6

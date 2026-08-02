@@ -28,16 +28,8 @@ class AndroidProfile:
     supplementary_groups: tuple[int, ...] = (3003, 9997, 20198, 50198)
     oom_score_adj: int = 200
     selinux_context: str = "u:r:untrusted_app:s0:c159,c256,c512,c768"
-    stack_guard: int = field(
-        default_factory=lambda: int.from_bytes(os.urandom(8), "little") & ~0xFF
-    )
-    environment_variables: dict[str, str] = field(
-        default_factory=lambda: {
-            "ANDROID_DATA": "/data",
-            "ANDROID_ROOT": "/system",
-            "PATH": "/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin",
-        }
-    )
+    stack_guard: int = field(default_factory=lambda: int.from_bytes(os.urandom(8), "little") & ~0xFF)
+    environment_variables: dict[str, str] = field(default_factory=lambda: {"ANDROID_DATA": "/data", "ANDROID_ROOT": "/system", "PATH": "/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin"})
 
     def __post_init__(self) -> None:
         self._rng = random.Random(self.seed)
