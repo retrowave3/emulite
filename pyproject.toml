@@ -5,7 +5,8 @@ build-backend = "hatchling.build"
 [project]
 name = "emulite"
 version = "0.1.0"
-description = "Emulite is an emulation framework for Android native libraries, inspired by unidbg. iOS support is planned."
+description = "A Python framework for emulating and instrumenting Android ARM32 and ARM64 native libraries."
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "lief>=0.14",
@@ -17,8 +18,23 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5"]
 
+[project.urls]
+Repository = "https://github.com/retrowave3/emulite"
+Issues = "https://github.com/retrowave3/emulite/issues"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/emulite"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"rootfs/android" = "emulite/rootfs/android"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/rootfs/android",
+    "/README.md",
+    "/pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100

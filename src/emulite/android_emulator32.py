@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import struct
 
+from emulite._rootfs import resolve_android_rootfs
 from emulite.android.android_file_system import AndroidFileSystem
 from emulite.android.arm32.android_libc_hooks32 import AndroidLibcHooks32
 from emulite.android.arm32.android_syscall_handler32 import AndroidSyscallHandler32
@@ -45,7 +46,7 @@ class AndroidEmulator32(AndroidEmulatorBase):
 
     def __init__(
         self,
-        rootfs: str,
+        rootfs: str | os.PathLike[str] | None = None,
         *,
         log: LogCategory | Logger = LogCategory.Default,
         profile: AndroidProfile | None = None,
@@ -58,6 +59,8 @@ class AndroidEmulator32(AndroidEmulatorBase):
         jni_env: type[JNIEnv] = JNIEnv,
         java_vm: type[JavaVM] = JavaVM,
     ):
+        rootfs = resolve_android_rootfs(rootfs)
+        self.rootfs = rootfs
         self.log = log if isinstance(log, Logger) else Logger(categories=log)
 
         self.profile = profile or AndroidProfile()

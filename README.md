@@ -34,11 +34,16 @@ Emulite is an emulation framework for Android native libraries, inspired by [Uni
 
 ## Examples
 
-See the [examples](./examples) directory.
+See the [examples](./examples) directory. To run them from a source checkout:
+
+```console
+python -m pip install -e .
+python examples/apps/reddit_example.py
+```
 
 ## Android Usage
 
-Use `AndroidEmulator32` or `AndroidEmulator64` based on the target architecture.
+Use `AndroidEmulator32` or `AndroidEmulator64` based on the target architecture. A default Android rootfs is included. Pass a path as the first argument to use a custom rootfs.
 
 ```python
 from emulite import AndroidEmulator64, HookStatus, LogCategory, JniHandler
@@ -70,7 +75,7 @@ def on_instruction(emu, info):
     print(info.format())
 
 
-with AndroidEmulator64("path/to/rootfs/android", jni_handler=CustomJniHandler(), log=LogCategory.NONE) as emu:
+with AndroidEmulator64(jni_handler=CustomJniHandler(), log=LogCategory.NONE) as emu:
     # Load the target ELF and its dependencies
     module = emu.load("path/to/libnative.so")
 

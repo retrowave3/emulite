@@ -34,6 +34,7 @@ from emulite.memory.native_pointer import NativePointer
 
 
 class AndroidEmulatorBase(Protocol):
+    rootfs: str
     log: Logger
     profile: AndroidProfile
     device: AndroidDevice
