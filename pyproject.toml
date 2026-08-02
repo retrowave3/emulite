@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "emulite"
 version = "0.1.0"
-description = "A Python framework for emulating and instrumenting Android ARM32 and ARM64 native libraries."
+description = "Emulation framework for Android & iOS native libraries"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
