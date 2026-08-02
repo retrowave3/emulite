@@ -13,6 +13,22 @@ Emulite is an emulation framework for Android native libraries, inspired by [Uni
 - LIEF 0.14+
 - Cryptography 42+
 
+## Installation
+
+From PyPI:
+
+```console
+python -m pip install emulite
+```
+
+From source:
+
+```console
+git clone https://github.com/retrowave3/emulite.git
+cd emulite
+python -m pip install -e .
+```
+
 ## Project Status
 
 ### Supported Platforms
@@ -34,12 +50,7 @@ Emulite is an emulation framework for Android native libraries, inspired by [Uni
 
 ## Examples
 
-See the [examples](./examples) directory. To run them from a source checkout:
-
-```console
-python -m pip install -e .
-python examples/apps/reddit_example.py
-```
+See the [examples](./examples) directory.
 
 ## Android Usage
 
