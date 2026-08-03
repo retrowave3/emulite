@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, LogCategory
-from emulite.hooks.hook_status import HookStatus
-from emulite.hooks.trace_info import TraceInfo
+from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, HookStatus, LogCategory, TraceInfo
 
 ASSETS = Path(__file__).resolve().parents[2] / "rootfs" / "examples" / "android"
 LIB64 = str(ASSETS / "arm64" / "libEncryptor.so")
@@ -25,44 +23,34 @@ def setup_arm32() -> AndroidEmulator32:
     return emu
 
 
-def on_trace_step(emu: AndroidEmulatorBase, info: TraceInfo):
+def on_trace_step(_emu: AndroidEmulatorBase, info: TraceInfo) -> None:
     print(info.format())
     # return False                      # return False from the callback to stop tracing early
 
 
-def before_memcpy(emu: AndroidEmulatorBase):
+def before_memcpy(emu: AndroidEmulatorBase) -> HookStatus:
     dst, src, n = emu.arg(0), emu.arg(1), emu.arg(2)  # x0, x1, x2
     print(f"memcpy({dst:#x}, {src:#x}, {n})")
     return HookStatus.CALL_ORIGINAL
 
 
-def after_memcpy(emu: AndroidEmulatorBase):
-    pass
-
-
-def before_time(emu: AndroidEmulatorBase):
+def before_time(emu: AndroidEmulatorBase) -> HookStatus:
     replacement_value = 123456789
     emu.set_arg(0, replacement_value)  # store result in r0/x0
     print(f"replaced time: {replacement_value}")
     return HookStatus.SKIP_ORIGINAL
 
 
-def encrypt(emu: AndroidEmulatorBase, data: bytes, trace: bool = False):
-    memcpy_handle = emu.hook_symbol("memcpy", before_memcpy, after_memcpy)
-    time_handle = emu.hook_symbol("time", before_time)
-    if trace:
-        trace_handle = emu.trace_code(on_trace_step)
+def encrypt(emu: AndroidEmulatorBase, data: bytes, trace: bool = False) -> object:
+    def run() -> object:
+        return emu.call_static_native("com/bytedance/frameworks/encryptor/EncryptorUtil", "ttEncrypt", "([BI)[B", data, len(data))
 
-    encrypted = emu.call_static_native(
-        "com/bytedance/frameworks/encryptor/EncryptorUtil", "ttEncrypt", "([BI)[B", data, len(data)
-    )
-
-    memcpy_handle.unhook()
-    time_handle.unhook()
-    if trace:
-        trace_handle.unhook()
-
-    return encrypted
+    # Observe the real memcpy calls while replacing time() entirely with a deterministic result.
+    with emu.hook_symbol("memcpy", before_memcpy), emu.hook_symbol("time", before_time):
+        if trace:
+            with emu.trace_code(on_trace_step):
+                return run()
+        return run()
 
 
 emu32 = setup_arm32()

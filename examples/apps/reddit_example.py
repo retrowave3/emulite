@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, LogCategory
-from emulite.hooks.trace_info import TraceInfo
+from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, CallEvent, LogCategory, TraceAction
 
 ASSETS = Path(__file__).resolve().parents[2] / "rootfs" / "examples" / "android"
 LIB64 = str(ASSETS / "arm64" / "libreddit-ndk.so")
@@ -24,29 +23,21 @@ def setup_arm32() -> AndroidEmulator32:
     return emu
 
 
-def on_trace_step(emu: AndroidEmulatorBase, info: TraceInfo):
-    print(info.format())
-    # return False                      # return False from the callback to stop tracing early
+def on_call(_emu: AndroidEmulatorBase, event: CallEvent) -> TraceAction:
+    print(f"  {event.format()}")
+    return TraceAction.CONTINUE
 
 
-def decrypt_key(emu: AndroidEmulatorBase, trace: bool = False):
-    if trace:
-        trace_handle = emu.trace_code(on_trace_step)
-
-    decrypted = emu.call_static_native(
-        "com/reddit/media/common/apikeys/KeyUtil", "decryptGiphyApiKey", "()Ljava/lang/String;"
-    )
-
-    if trace:
-        trace_handle.unhook()
-
-    return decrypted
+def decrypt_key(emu: AndroidEmulatorBase) -> object:
+    # Call events are emitted when native branches return, and the handle cleans itself up here.
+    with emu.call_trace(on_call, module_name="libreddit-ndk.so"):
+        return emu.call_static_native("com/reddit/media/common/apikeys/KeyUtil", "decryptGiphyApiKey", "()Ljava/lang/String;")
 
 
 emu32 = setup_arm32()
 emu64 = setup_arm64()
 
-key32 = decrypt_key(emu32, trace=False)
-key64 = decrypt_key(emu64, trace=False)
+key32 = decrypt_key(emu32)
+key64 = decrypt_key(emu64)
 print(f"giphy key arm32: {key32}")
 print(f"giphy key arm64: {key64}")

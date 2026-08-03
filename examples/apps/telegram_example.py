@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, LogCategory
+from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, HookStatus, LogCategory
 
 ASSETS = Path(__file__).resolve().parents[2] / "rootfs" / "examples" / "android"
 LIB64 = str(ASSETS / "arm64" / "libtmessages.49.so")
@@ -23,14 +23,28 @@ def setup_arm32() -> AndroidEmulator32:
     return emu
 
 
-def run_crypto(emu: AndroidEmulatorBase):
-    utils = emu.java_class("org/telegram/messenger/Utilities")
-    password, salt, dst = bytearray(b"123456"), bytearray(8), bytearray(64)
-    utils.call("pbkdf2", "([B[B[BI)V", password, salt, dst, 256)
+def run_crypto(emu: AndroidEmulatorBase) -> tuple[str, str]:
+    pending_sizes: list[int] = []
+    allocations: list[tuple[int, int]] = []
 
-    data, key, iv = bytearray(16), bytearray(32), bytearray(16)
-    utils.call("aesCtrDecryptionByteArray", "([B[B[BIIJ)V", data, key, iv, 0, 16, 0)
+    def before_malloc(hooked_emu: AndroidEmulatorBase) -> HookStatus:
+        pending_sizes.append(hooked_emu.arg(0))
+        return HookStatus.CALL_ORIGINAL
 
+    def after_malloc(hooked_emu: AndroidEmulatorBase) -> None:
+        allocations.append((pending_sizes.pop(), hooked_emu.ret))
+
+    # Observe arguments before each real malloc call and its return address afterward.
+    with emu.hook_symbol("malloc", before_malloc, after_malloc, module_name="libtmessages.49.so"):
+        utils = emu.java_class("org/telegram/messenger/Utilities")
+        password, salt, dst = bytearray(b"123456"), bytearray(8), bytearray(64)
+        utils.call("pbkdf2", "([B[B[BI)V", password, salt, dst, 256)
+
+        data, key, iv = bytearray(16), bytearray(32), bytearray(16)
+        utils.call("aesCtrDecryptionByteArray", "([B[B[BIIJ)V", data, key, iv, 0, 16, 0)
+
+    arch = f"arm{emu.arch.pointer_size * 8}"
+    print(f"{arch} malloc calls: " + ", ".join(f"{size} bytes -> {address:#x}" for size, address in allocations))
     return dst.hex(), data.hex()
 
 
