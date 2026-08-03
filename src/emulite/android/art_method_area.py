@@ -1,13 +1,16 @@
 from emulite.cpu.flags.memory_protection_flag import RW
+from emulite.memory import MemoryManager
 
 
 class ArtMethodArea:
+    """Fixed-size guest memory arena for synthetic 64-bit ART method records."""
+
     DECLARING_CLASS, ACCESS_FLAGS, DEX_METHOD_INDEX = 0x00, 0x04, 0x08
     METHOD_INDEX, DATA, ENTRY_POINT = 0x0C, 0x10, 0x18
     SIZE = 0x20  # sizeof(ArtMethod)
     _REGION_BYTES = 0x10000
 
-    def __init__(self, mem: object):
+    def __init__(self, mem: MemoryManager):
         self._mem = mem
         self._base = mem.mmap(self._REGION_BYTES, perms=RW, label="art-methods")
         self._cursor = 0

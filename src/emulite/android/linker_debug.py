@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass
+from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING
 
+from emulite.android.linker_image import LinkerImage
 from emulite.android.structs.link_map32 import LinkMap32
 from emulite.android.structs.link_map64 import LinkMap64
 from emulite.android.structs.r_debug32 import RDebug32
@@ -33,20 +35,12 @@ _SYNTHETIC_LIBS = {
 }
 
 
-@dataclass
-class _PhdrImage:
-    base: int
-    phdr_addr: int
-    phnum: int
-    device_path: str
-    ld: int = 0  # l_ld: this image's _DYNAMIC (0 for none)
-    name_ptr: int = 0  # l_name: guest cstr of device_path
-
-
 class LinkerDebug:
+    """Guest-visible ELF and link_map state used by bionic debugger interfaces."""
+
     _CAPACITY = 512  # link_map nodes preallocated (modules + main-exe + linker)
 
-    def __init__(self, emu: "AndroidEmulatorBase"):
+    def __init__(self, emu: AndroidEmulatorBase):
         self._emu = emu
         self._mem = emu.mem
         self._arch = emu.arch
@@ -56,7 +50,7 @@ class LinkerDebug:
         self._LinkMap = LinkMap64 if self._ptr == 8 else LinkMap32
         self._name_ptrs: dict[str, int] = {}  # module name -> l_name cstr (allocated once, reused)
         self._mask = (1 << (self._ptr * 8)) - 1  # pointer-width mask for a bias-relative st_value
-        self.dep_images: list[_PhdrImage] = []  # synthetic liblog.so/libandroid.so (built lazily post-libc)
+        self.dep_images: list[LinkerImage] = []  # synthetic liblog.so/libandroid.so (built lazily post-libc)
         self._dep_built = False
         self.r_debug_addr = 0
         self.phdr_addr = self.phnum = self.phent = self.entry = 0
@@ -68,8 +62,8 @@ class LinkerDebug:
         self._rtld_activity = 0
         self._main_name = 0
         self._linker_name = 0
-        self.main_image: "_PhdrImage | None" = None
-        self.linker_image: "_PhdrImage | None" = None
+        self.main_image: LinkerImage | None = None
+        self.linker_image: LinkerImage | None = None
 
     def install(self) -> None:
         exe, linker = ("app_process64", "/system/bin/linker64") if self._ptr == 8 else ("app_process32", "/system/bin/linker")
@@ -79,8 +73,8 @@ class LinkerDebug:
         self._main_ld = self._install_main_exe()
         self._linker_ld = self._install_linker()
         self._RDebug(version=1, brk=self._rtld_activity, ldbase=self._linker_base).write_to(self._mem, self.r_debug_addr)
-        self.main_image = _PhdrImage(0, self.phdr_addr, self.phnum, f"/system/bin/{exe}", ld=self._main_ld, name_ptr=self._main_name)
-        self.linker_image = _PhdrImage(self._linker_base, self._linker_phdr, self._linker_phnum, linker, ld=self._linker_ld, name_ptr=self._linker_name)
+        self.main_image = LinkerImage(0, self.phdr_addr, self.phnum, f"/system/bin/{exe}", ld=self._main_ld, name_ptr=self._main_name)
+        self.linker_image = LinkerImage(self._linker_base, self._linker_phdr, self._linker_phnum, linker, ld=self._linker_ld, name_ptr=self._linker_name)
         self._pool = self._mem.mmap(self._CAPACITY * self._LinkMap.SIZE, _RW, "link_map")
 
     def _install_main_exe(self) -> int:
@@ -107,7 +101,7 @@ class LinkerDebug:
         self._log.loader("%s debug image @ %#x (rtld_db_dlactivity @ %#x)", label, base, blob)
         return ld
 
-    def _emit_module(self, label: str, soname: str, symbols: "tuple[str, ...]", st_value, code: bytes = b"", perms: MemoryProtectionFlag = _R) -> "tuple[int, int, int, int, int]":
+    def _emit_module(self, label: str, soname: str, symbols: tuple[str, ...], st_value: Callable[[str, int, int], int], code: bytes = b"", perms: MemoryProtectionFlag = _R) -> tuple[int, int, int, int, int]:
         strtab = bytearray(b"\x00")
         name_offs = []
         for name in symbols:
@@ -152,9 +146,12 @@ class LinkerDebug:
         for soname, symbols in _SYNTHETIC_LIBS.items():
             addrs = {name: self._symbol_address(name) for name in symbols}
             device_path = f"/system/lib{'64' if self._ptr == 8 else ''}/{soname}"
-            base, ld, phdr, phnum, _ = self._emit_module("syslib", soname, tuple(addrs), lambda name, base, code_off: (addrs[name] - base) & self._mask)
-            self.dep_images.append(_PhdrImage(base, phdr, phnum, device_path, ld=ld, name_ptr=self._mem.alloc_cstr(device_path)))
+            base, ld, phdr, phnum, _ = self._emit_module("syslib", soname, tuple(addrs), partial(self._relative_symbol_address, addrs))
+            self.dep_images.append(LinkerImage(base, phdr, phnum, device_path, ld=ld, name_ptr=self._mem.alloc_cstr(device_path)))
             self._log.loader("%s debug image @ %#x (%d symbols)", soname, base, len(addrs))
+
+    def _relative_symbol_address(self, addresses: dict[str, int], name: str, base: int, _code_offset: int) -> int:
+        return (addresses[name] - base) & self._mask
 
     def _symbol_address(self, name: str) -> int:
         addr = self._emu.libc.resolve_override(name)
@@ -166,6 +163,8 @@ class LinkerDebug:
         raise EmulatorCrashed(f"{name}: not implemented in emulite — the NDK AssetManager (libandroid.so) is not modelled. A target that reads assets needs a driver to provide them.")
 
     def rebuild(self) -> None:
+        if self.main_image is None or self.linker_image is None or not self._pool:
+            raise RuntimeError("LinkerDebug.install() must be called before rebuild()")
         self._ensure_dep_libs()
         module_nodes = []
         seen: set[int] = set()
@@ -178,7 +177,7 @@ class LinkerDebug:
         if len(module_nodes) > cap:
             self._log.loader("link_map: %d modules exceeds capacity %d — truncating (raise _CAPACITY)", len(module_nodes), cap, level=LogLevel.WARN)
             module_nodes = module_nodes[:cap]
-        node_of = lambda img: (img.base, img.name_ptr, img.ld)
+        node_of = lambda image: (image.base, image.name_ptr, image.ld)
         nodes = [node_of(self.main_image), *module_nodes, *map(node_of, self.dep_images), node_of(self.linker_image)]
         size, count = self._LinkMap.SIZE, len(nodes)
         for i, (l_addr, l_name, l_ld) in enumerate(nodes):
@@ -188,7 +187,7 @@ class LinkerDebug:
             self._LinkMap(addr=l_addr, name=l_name, ld=l_ld, next=nxt, prev=prev).write_to(self._mem, addr)
         self._RDebug(version=1, map=self._pool, state=0, brk=self._rtld_activity, ldbase=self._linker_base).write_to(self._mem, self.r_debug_addr)
 
-    def _module_name(self, module: "NativeModule") -> int:
+    def _module_name(self, module: NativeModule) -> int:
         if module.name not in self._name_ptrs:
             self._name_ptrs[module.name] = self._mem.alloc_cstr(self._emu.vfs.device_path(module))
         return self._name_ptrs[module.name]

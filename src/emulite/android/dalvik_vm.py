@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import zlib
+from typing import TYPE_CHECKING
 
 from emulite.android.art_method_area import ArtMethodArea
 from emulite.android.java import models  # noqa: F401 — importing populates JavaObject._REGISTRY
@@ -11,11 +12,16 @@ from emulite.android.java.lang.reflect.java_method import JavaMethod
 from emulite.common.errors import EmulatorCrashed
 from emulite.cpu.flags.memory_protection_flag import MemoryProtectionFlag
 
+if TYPE_CHECKING:
+    from emulite.android_emulator import AndroidEmulatorBase
+
 
 class DalvikVM:
+    """Per-emulator Java classes, objects, JNI references, and member identifiers."""
+
     _ACC_PUBLIC, _ACC_STATIC, _ACC_NATIVE = 0x0001, 0x0008, 0x0100
 
-    def __init__(self, emu: object | None = None) -> None:
+    def __init__(self, emu: AndroidEmulatorBase | None = None) -> None:
         self._emu = emu
         self._classes: dict[str, JavaClass] = {}
         self._objects: dict[int, object] = {}
@@ -35,7 +41,7 @@ class DalvikVM:
         self._art_methods: dict[int, int] = {}
 
     @property
-    def emu(self) -> object:
+    def emu(self) -> AndroidEmulatorBase | None:
         return self._emu
 
     def class_for(self, name: str, backing: type | None = None) -> JavaClass:
@@ -115,10 +121,10 @@ class DalvikVM:
         self._local.pop(ref, None)
         self._forget(ref)
 
-    def local_mark(self) -> set:
+    def local_mark(self) -> set[int]:
         return set(self._local)
 
-    def local_release(self, mark: set) -> None:
+    def local_release(self, mark: set[int]) -> None:
         for ref in [r for r in self._local if r not in mark]:
             self.delete_local(ref)
 
@@ -164,7 +170,7 @@ class DalvikVM:
         self._member_ids[id(member)] = fid
         return fid
 
-    def member(self, member_id: int) -> "JavaMethod | JavaField | None":
+    def member(self, member_id: int) -> JavaMethod | JavaField | None:
         return self._members.get(member_id)
 
     def id_of(self, member: object) -> int:
@@ -187,21 +193,24 @@ class DalvikVM:
         if self._art_area is None:
             self._art_area = ArtMethodArea(self._emu.mem)
         libart = self._executable_addr("libart.so")
+        declaring_class = method.getDeclaringClass()
         if method.native_addr:
             data = method.native_addr
         elif libart is not None:
             data = libart
         else:
-            raise EmulatorCrashed(f"ArtMethod.data_ for framework method {method.java_class.name}.{method.name} needs libart.so loaded (ART anti-hook introspection)")
+            raise EmulatorCrashed(f"ArtMethod.data_ for framework method {declaring_class.name}.{method.name} needs libart.so loaded (ART anti-hook introspection)")
         flags = self._ACC_PUBLIC | (self._ACC_STATIC if method.is_static else 0) | self._ACC_NATIVE
         index = len(self._art_methods)
         ptr = self._art_area.create(
-            declaring_class=zlib.crc32(method.java_class.name.encode()) | 1, access_flags=flags, dex_index=index, method_index=index, data=data, entry=libart if libart is not None else data
+            declaring_class=zlib.crc32(declaring_class.name.encode()) | 1, access_flags=flags, dex_index=index, method_index=index, data=data, entry=libart if libart is not None else data
         )
         self._art_methods[id(method)] = ptr
         return ptr
 
-    def _executable_addr(self, module_name: str) -> "int | None":
+    def _executable_addr(self, module_name: str) -> int | None:
+        if self._emu is None:
+            raise RuntimeError("executable lookup needs an emulator-backed DVM")
         module = self._emu.get_module(module_name)
         if module is None:
             return None

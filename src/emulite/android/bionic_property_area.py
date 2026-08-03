@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 from emulite.cpu.flags.memory_protection_flag import MemoryProtectionFlag
+from emulite.memory import MemoryManager
 
 
 class AndroidPropertyArea:
+    """Bionic-compatible property records stored in guest memory."""
+
     SERIAL, VALUE, NAME = 0, 4, 96  # prop_info field offsets
     PROP_VALUE_MAX = 92  # sizeof(prop_info.value)
     LONG_FLAG = 0x10000  # serial & (1 << 16)
@@ -13,7 +18,7 @@ class AndroidPropertyArea:
     _PA_DATA = 128  # sizeof(prop_area)
     _REGION_BYTES = 0x40000
 
-    def __init__(self, mem: object):
+    def __init__(self, mem: MemoryManager):
         self._mem = mem
         self._base = mem.mmap(self._REGION_BYTES, perms=MemoryProtectionFlag.READ, label="properties")
         self._cursor = self._PA_DATA
@@ -37,7 +42,7 @@ class AndroidPropertyArea:
     def invalidate(self, name: str) -> None:
         self._by_name.pop(name, None)
 
-    def read(self, info: int) -> "tuple[str, str, int] | None":
+    def read(self, info: int) -> tuple[str, str, int] | None:
         if info not in self._infos:
             return None
         serial = self._mem.read_u32(info + self.SERIAL)
@@ -52,8 +57,14 @@ class AndroidPropertyArea:
     def _write_info(self, name: str, value: str) -> int:
         raw_name = name.encode("utf-8")
         raw_value = value.encode("utf-8")
-        info = self._base + self._write_leaf_bt(raw_name)
+        leaf = raw_name.rsplit(b".", 1)[-1]
+        info_offset = self._align4(self._cursor + self.BT_NAME + len(leaf) + 1)
         struct_bytes = self.NAME + len(raw_name) + 1
+        info_bytes = struct_bytes if len(raw_value) < self.PROP_VALUE_MAX else self._align8(struct_bytes) + len(raw_value) + 1
+        end = self._align8(info_offset + info_bytes)
+        if end > self._REGION_BYTES:
+            raise MemoryError(f"prop_info area exhausted at {end:#x} of {self._REGION_BYTES:#x}")
+        info = self._base + self._write_leaf_bt(raw_name)
         if len(raw_value) < self.PROP_VALUE_MAX:
             self._mem.write_u32(info + self.SERIAL, len(raw_value) << 24)
             self._mem.write(info + self.VALUE, raw_value + b"\x00")
@@ -82,8 +93,6 @@ class AndroidPropertyArea:
 
     def _advance(self, size: int) -> None:
         self._cursor = self._align8(self._cursor + size)
-        if self._cursor >= self._REGION_BYTES:
-            raise MemoryError(f"prop_info area exhausted at {self._cursor:#x} of {self._REGION_BYTES:#x}")
 
     @staticmethod
     def _align4(value: int) -> int:

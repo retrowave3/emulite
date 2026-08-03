@@ -1079,7 +1079,7 @@ class AndroidSyscallHandler32:
         request_ns = sec * 1_000_000_000 + nsec
         if flags & 1:  # TIMER_ABSTIME: advance the virtual clock to the deadline
             clock = self._emu.device.clock
-            (clock.sync_realtime if clockid in (0, 5) else clock.sync_monotonic)(request_ns)
+            (clock.advance_to_realtime if clockid in (0, 5) else clock.advance_to_monotonic)(request_ns)
         else:
             self._clock_advance(request_ns)
             if rem_ptr:
@@ -1778,7 +1778,7 @@ class AndroidSyscallHandler32:
         request_ns = sec * 1_000_000_000 + nsec
         if flags & 1:  # TIMER_ABSTIME: advance the virtual clock to the deadline
             clock = self._emu.device.clock
-            (clock.sync_realtime if clockid in (0, 5) else clock.sync_monotonic)(request_ns)
+            (clock.advance_to_realtime if clockid in (0, 5) else clock.advance_to_monotonic)(request_ns)
         else:
             self._clock_advance(request_ns)
             if rem_ptr:

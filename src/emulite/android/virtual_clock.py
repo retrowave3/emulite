@@ -4,6 +4,8 @@ import time
 
 
 class VirtualClock:
+    """Deterministic monotonic and realtime clocks advanced by guest activity."""
+
     _TICK_NS = 20_000
 
     def __init__(self, boot_uptime_ns: int):
@@ -11,21 +13,21 @@ class VirtualClock:
         self._boot_uptime_ns = boot_uptime_ns
         self._elapsed_ns = 0
 
-    def monotonic_ns(self, advance: bool = True) -> int:
+    def monotonic_ns(self, *, advance: bool = True) -> int:
         if advance:
             self._elapsed_ns += self._TICK_NS
         return self._boot_uptime_ns + self._elapsed_ns
 
-    def realtime_ns(self, advance: bool = True) -> int:
-        return self._boot_realtime_ns + self.monotonic_ns(advance)
+    def realtime_ns(self, *, advance: bool = True) -> int:
+        return self._boot_realtime_ns + self.monotonic_ns(advance=advance)
 
     def advance(self, nanos: int) -> None:
         self._elapsed_ns += max(nanos, 0)
 
-    def sync_realtime(self, nanos: int) -> None:
+    def advance_to_realtime(self, nanos: int) -> None:
         self.advance(nanos - self.realtime_ns(advance=False))
 
-    def sync_monotonic(self, nanos: int) -> None:
+    def advance_to_monotonic(self, nanos: int) -> None:
         self.advance(nanos - self.monotonic_ns(advance=False))
 
     @property
