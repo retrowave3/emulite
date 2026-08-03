@@ -65,8 +65,10 @@ class CallTracer:
 
     def _emit(self, event: CallEvent) -> None:
         result = self._callback(self._emu, event)
-        if result is False or result is TraceAction.STOP_TRACING:
+        if result is TraceAction.STOP_TRACING:
             self._stopped = True
+        elif result is not None and result is not TraceAction.CONTINUE:
+            raise TypeError(f"call trace hook returned {result!r}; expected TraceAction or None")
 
     def _is_return(self, insn: capstone.CsInsn) -> bool:
         if insn.group(capstone.CS_GRP_RET) or insn.mnemonic == "ret":

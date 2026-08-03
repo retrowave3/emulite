@@ -60,7 +60,8 @@ See the [examples](./examples) directory.
 Use `AndroidEmulator32` or `AndroidEmulator64` based on the target architecture. A default Android rootfs is included. Pass a path as the first argument to use a custom rootfs.
 
 ```python
-from emulite import AndroidEmulator64, HookStatus, LogCategory, JniHandler
+from emulite import AndroidEmulator64, JniHandler, LogCategory, ReplacementAction
+
 
 class CustomJniHandler(JniHandler):
     # Unhandled methods raise `NotImplementedError`.
@@ -82,7 +83,7 @@ def before_time(emu):
     replacement_value = 150000
     # emu.set_arg(0, replacement_value)   # Store result in r0/x0
     emu.finish(replacement_value)
-    return HookStatus.SKIP_ORIGINAL     # Skip the original call
+    return ReplacementAction.SKIP_ORIGINAL  # Skip the original call
 
 
 def on_instruction(emu, info):
@@ -98,14 +99,14 @@ with AndroidEmulator64(jni_handler=CustomJniHandler(), log=LogCategory.NONE) as 
         "malloc",
         before_malloc,
         after_malloc,
-        module_name=module.name,    # Module name is optional
+        module_name=module.name,  # Module name is optional
     )
 
     # Replace time() result
     time_hook = emu.hook_symbol(
         "time",
         before_time,
-        module_name=module.name,    # Module name is optional
+        module_name=module.name,  # Module name is optional
     )
 
     # Run JNI_OnLoad

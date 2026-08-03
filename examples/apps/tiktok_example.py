@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, HookStatus, LogCategory, TraceInfo
+from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, LogCategory, ReplacementAction, TraceAction, TraceInfo
 
 ASSETS = Path(__file__).resolve().parents[2] / "rootfs" / "examples" / "android"
 LIB64 = str(ASSETS / "arm64" / "libEncryptor.so")
@@ -23,22 +23,22 @@ def setup_arm32() -> AndroidEmulator32:
     return emu
 
 
-def on_trace_step(_emu: AndroidEmulatorBase, info: TraceInfo) -> None:
+def on_trace_step(_emu: AndroidEmulatorBase, info: TraceInfo) -> TraceAction:
     print(info.format())
-    # return False                      # return False from the callback to stop tracing early
+    return TraceAction.CONTINUE
 
 
-def before_memcpy(emu: AndroidEmulatorBase) -> HookStatus:
+def before_memcpy(emu: AndroidEmulatorBase) -> ReplacementAction:
     dst, src, n = emu.arg(0), emu.arg(1), emu.arg(2)  # x0, x1, x2
     print(f"memcpy({dst:#x}, {src:#x}, {n})")
-    return HookStatus.CALL_ORIGINAL
+    return ReplacementAction.CALL_ORIGINAL
 
 
-def before_time(emu: AndroidEmulatorBase) -> HookStatus:
+def before_time(emu: AndroidEmulatorBase) -> ReplacementAction:
     replacement_value = 123456789
     emu.set_arg(0, replacement_value)  # store result in r0/x0
     print(f"replaced time: {replacement_value}")
-    return HookStatus.SKIP_ORIGINAL
+    return ReplacementAction.SKIP_ORIGINAL
 
 
 def encrypt(emu: AndroidEmulatorBase, data: bytes, trace: bool = False) -> object:

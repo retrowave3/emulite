@@ -56,8 +56,10 @@ class Tracer:
         self._pending.output_registers = self._values(emu, self._pending_written)
         info, self._pending = self._pending, None
         result = self._callback(emu, info)
-        if result is False or result is TraceAction.STOP_TRACING:
+        if result is TraceAction.STOP_TRACING:
             self._stopped = True
+        elif result is not None and result is not TraceAction.CONTINUE:
+            raise TypeError(f"trace hook returned {result!r}; expected TraceAction or None")
 
     def _values(self, emu: AndroidEmulatorBase, names: list[str]) -> dict[str, int]:
         out: dict[str, int] = {}

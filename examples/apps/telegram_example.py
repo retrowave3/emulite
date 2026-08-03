@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, HookStatus, LogCategory
+from emulite import AndroidEmulator32, AndroidEmulator64, AndroidEmulatorBase, LogCategory, ReplacementAction
 
 ASSETS = Path(__file__).resolve().parents[2] / "rootfs" / "examples" / "android"
 LIB64 = str(ASSETS / "arm64" / "libtmessages.49.so")
@@ -27,9 +27,9 @@ def run_crypto(emu: AndroidEmulatorBase) -> tuple[str, str]:
     pending_sizes: list[int] = []
     allocations: list[tuple[int, int]] = []
 
-    def before_malloc(hooked_emu: AndroidEmulatorBase) -> HookStatus:
+    def before_malloc(hooked_emu: AndroidEmulatorBase) -> ReplacementAction:
         pending_sizes.append(hooked_emu.arg(0))
-        return HookStatus.CALL_ORIGINAL
+        return ReplacementAction.CALL_ORIGINAL
 
     def after_malloc(hooked_emu: AndroidEmulatorBase) -> None:
         allocations.append((pending_sizes.pop(), hooked_emu.ret))

@@ -11,7 +11,20 @@ from emulite.hooks._got_hook_chain import _GotHookChain
 from emulite.hooks.call_tracer import CallTracer
 from emulite.hooks.hook_handle import HookHandle
 from emulite.hooks.tracer import Tracer
-from emulite.hooks.types import AddressHook, CallTraceHook, CodeHook, MemoryAccess, MemoryFaultHook, MemoryHook, MemoryHookAction, PostCallHook, ReplacementHook, TraceHook
+from emulite.hooks.types import (
+    AddressHook,
+    CallTraceHook,
+    CodeHook,
+    MemoryAccess,
+    MemoryFaultAction,
+    MemoryFaultHook,
+    MemoryHook,
+    MemoryHookAction,
+    PostCallHook,
+    ReplacementAction,
+    ReplacementHook,
+    TraceHook,
+)
 
 if TYPE_CHECKING:
     from emulite.android_emulator import AndroidEmulatorBase
@@ -95,7 +108,7 @@ class HookManager:
     def trace_code(self, callback: TraceHook, start: int | None = None, end: int | None = None) -> HookHandle:
         """Emit rich instruction records for an inclusive range.
 
-        Returning ``False`` or ``TraceAction.STOP_TRACING`` stops future records.
+        Returning ``TraceAction.STOP_TRACING`` stops future records.
         Close the handle afterward to remove the backend hook.
         """
         tracer = Tracer(self._emu, callback, self._emu.disassembler)
@@ -132,7 +145,7 @@ class HookManager:
     def hook_symbol(self, symbol: str, on_call: ReplacementHook, post_call: PostCallHook | None = None, module_name: str | None = None) -> HookHandle:
         """Intercept matching import slots in modules loaded at installation time.
 
-        ``None`` and ``HookStatus.CALL_ORIGINAL`` run the original function.
+        ``None`` and ``ReplacementAction.CALL_ORIGINAL`` run the original function.
         ``post_call`` runs only when the original function is called.
         """
         emu = self._emu
@@ -173,13 +186,15 @@ class HookManager:
 
         def on_handler() -> int | None:
             status = on_call(emu)
-            if status is None or status.call_original:
+            if status is None or status is ReplacementAction.CALL_ORIGINAL:
                 if post_call:
                     saved_lr.append(emu.reg(reg.LR))
                     emu.set_reg(reg.LR, installed.after_trampoline)
                 index = chain.hooks.index(installed)
                 target = chain.hooks[index - 1].trampoline if index else chain.original
                 emu.set_reg(reg.PC, target)
+            elif status is not ReplacementAction.SKIP_ORIGINAL:
+                raise TypeError(f"replacement hook returned {status!r}; expected ReplacementAction or None")
             return None
 
         try:
@@ -225,11 +240,13 @@ class HookManager:
 
         def on_entry(e: AndroidEmulatorBase) -> None:
             status = on_call(e)
-            if status is None or status.call_original:
+            if status is None or status is ReplacementAction.CALL_ORIGINAL:
                 if post_call:
                     saved_lr.append(e.reg(reg.LR))
                     e.set_reg(reg.LR, after_tramp)
                 return
+            if status is not ReplacementAction.SKIP_ORIGINAL:
+                raise TypeError(f"replacement hook returned {status!r}; expected ReplacementAction or None")
             e.set_reg(reg.PC, e.reg(reg.LR))
 
         try:
@@ -250,8 +267,7 @@ class HookManager:
     def hook_memory(self, callback: MemoryHook, start: int | None = None, end: int | None = None, reads: bool = True, writes: bool = True) -> HookHandle:
         """Observe reads and writes in an inclusive address range.
 
-        Returning ``False`` or ``MemoryHookAction.STOP_EMULATION`` stops the
-        current emulation run.
+        Returning ``MemoryHookAction.STOP_EMULATION`` stops the current emulation run.
         """
         emu = self._emu
         if not reads and not writes:
@@ -262,16 +278,20 @@ class HookManager:
 
             def _on_read(_uc: object, _access: int, address: int, size: int, value: int, _user: object) -> None:
                 result = callback(emu, MemoryAccess.READ, address, size, value)
-                if result is False or result is MemoryHookAction.STOP_EMULATION:
+                if result is MemoryHookAction.STOP_EMULATION:
                     emu.stop()
+                elif result is not None and result is not MemoryHookAction.CONTINUE:
+                    raise TypeError(f"memory hook returned {result!r}; expected MemoryHookAction or None")
 
             installs.append(self._install_mem(HookType.MEM_READ, _on_read, begin, finish))
         if writes:
 
             def _on_write(_uc: object, _access: int, address: int, size: int, value: int, _user: object) -> None:
                 result = callback(emu, MemoryAccess.WRITE, address, size, value)
-                if result is False or result is MemoryHookAction.STOP_EMULATION:
+                if result is MemoryHookAction.STOP_EMULATION:
                     emu.stop()
+                elif result is not None and result is not MemoryHookAction.CONTINUE:
+                    raise TypeError(f"memory hook returned {result!r}; expected MemoryHookAction or None")
 
             try:
                 installs.append(self._install_mem(HookType.MEM_WRITE, _on_write, begin, finish))
@@ -288,17 +308,20 @@ class HookManager:
         return self.hook_memory(callback, start=address, end=address + length - 1, reads=reads, writes=writes)
 
     def hook_mem_fault(self, callback: MemoryFaultHook) -> HookHandle:
-        """Handle invalid memory access; return true when the fault was repaired."""
+        """Handle invalid memory access and report whether the fault was repaired."""
         emu = self._emu
 
         def _on_fault(_uc: object, _access: int, address: int, size: int, _value: int, _user: object) -> bool:
-            return bool(callback(emu, address, size))
+            result = callback(emu, address, size)
+            if not isinstance(result, MemoryFaultAction):
+                raise TypeError(f"memory fault hook returned {result!r}; expected MemoryFaultAction")
+            return result is MemoryFaultAction.HANDLED
 
         handle = self._install_mem(HookType.MEM_FAULT, _on_fault, 1, 0)
         emu.log.hooks("hook_mem_fault installed")
         return handle
 
-    def _install_mem(self, hook_type: HookType, wrapper: Callable, start: int, end: int) -> HookHandle:
+    def _install_mem(self, hook_type: HookType, wrapper: Callable[[object, int, int, int, int, object], object], start: int, end: int) -> HookHandle:
         emu = self._emu
         handle = emu.backend.hook_add(hook_type, wrapper, begin=start, end=end)
         return HookHandle(lambda: emu.backend.hook_del(handle))
@@ -307,7 +330,7 @@ class HookManager:
         """Trace calls in matching modules or in an explicit inclusive range.
 
         ``module_name`` and ``start``/``end`` are mutually exclusive. Returning
-        ``False`` or ``TraceAction.STOP_TRACING`` stops future records.
+        ``TraceAction.STOP_TRACING`` stops future records.
         """
         tracer = CallTracer(self._emu, callback, self._emu.disassembler)
         if start is not None or end is not None:
