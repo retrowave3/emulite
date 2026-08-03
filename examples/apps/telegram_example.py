@@ -28,20 +28,21 @@ def run_crypto(emu: AndroidEmulatorBase) -> tuple[str, str]:
     allocations: list[tuple[int, int]] = []
 
     def before_malloc(hooked_emu: AndroidEmulatorBase) -> ReplacementAction:
-        pending_sizes.append(hooked_emu.arg(0))
+        pending_sizes.append(hooked_emu.get_argument(0))
         return ReplacementAction.CALL_ORIGINAL
 
     def after_malloc(hooked_emu: AndroidEmulatorBase) -> None:
-        allocations.append((pending_sizes.pop(), hooked_emu.ret))
+        allocations.append((pending_sizes.pop(), hooked_emu.get_return_value()))
 
     # Observe arguments before each real malloc call and its return address afterward.
-    with emu.hook_symbol("malloc", before_malloc, after_malloc, module_name="libtmessages.49.so"):
-        utils = emu.java_class("org/telegram/messenger/Utilities")
-        password, salt, dst = bytearray(b"123456"), bytearray(8), bytearray(64)
-        utils.call("pbkdf2", "([B[B[BI)V", password, salt, dst, 256)
+    malloc_hook = emu.hook_symbol("malloc", before_malloc, after_malloc, module_name="libtmessages.49.so")
+    utils = emu.java_class("org/telegram/messenger/Utilities")
+    password, salt, dst = bytearray(b"123456"), bytearray(8), bytearray(64)
+    utils.call("pbkdf2", "([B[B[BI)V", password, salt, dst, 256)
 
-        data, key, iv = bytearray(16), bytearray(32), bytearray(16)
-        utils.call("aesCtrDecryptionByteArray", "([B[B[BIIJ)V", data, key, iv, 0, 16, 0)
+    data, key, iv = bytearray(16), bytearray(32), bytearray(16)
+    utils.call("aesCtrDecryptionByteArray", "([B[B[BIIJ)V", data, key, iv, 0, 16, 0)
+    malloc_hook.unhook()
 
     arch = f"arm{emu.arch.pointer_size * 8}"
     print(f"{arch} malloc calls: " + ", ".join(f"{size} bytes -> {address:#x}" for size, address in allocations))
@@ -57,3 +58,5 @@ print(f"arm32 pbkdf2 : {pbkdf2_32}")
 print(f"arm32 aes-ctr: {aes_ctr_32}")
 print(f"arm64 pbkdf2 : {pbkdf2_64}")
 print(f"arm64 aes-ctr: {aes_ctr_64}")
+emu32.close()
+emu64.close()

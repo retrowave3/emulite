@@ -21,7 +21,7 @@ Emulite is an emulation framework for Android native libraries, inspired by [Uni
 From PyPI:
 
 ```console
-python -m pip install emulite
+pip install emulite
 ```
 
 From source:
@@ -29,7 +29,7 @@ From source:
 ```console
 git clone https://github.com/retrowave3/emulite.git
 cd emulite
-python -m pip install -e .
+pip install -e .
 ```
 
 ## Project Status
@@ -59,79 +59,83 @@ See the [examples](./examples) directory.
 
 Use `AndroidEmulator32` or `AndroidEmulator64` based on the target architecture. A default Android rootfs is included. Pass a path as the first argument to use a custom rootfs.
 
+Every hook returns a `HookHandle`; call `unhook()` when the hook is no longer needed. Handles can also be used as context managers when lexical scoping is convenient. Replacement, trace, and memory callbacks use explicit action enums, so callback behavior is visible in both code and type checkers.
+
 ```python
-from emulite import AndroidEmulator64, JniHandler, LogCategory, ReplacementAction
+from emulite import AndroidEmulator64, AndroidEmulatorBase, JniHandler, JniValue, LogCategory, MemoryAccess, MemoryHookAction, ReplacementAction, TraceAction, TraceInfo
+from emulite.android.java.lang.reflect.java_method import JavaMethod
 
 
 class CustomJniHandler(JniHandler):
     # Unhandled methods raise `NotImplementedError`.
-    def call_static_method(self, method, args):
+    def call_static_method(self, method: JavaMethod, args: list[object]) -> JniValue:
         if method.java_class.name == "com/example/Device" and method.name == "getValue":
             return "value"
         return super().call_static_method(method, args)
 
 
-def before_malloc(emu):
-    print("malloc size:", emu.arg(0))
+def before_malloc(emu: AndroidEmulatorBase) -> ReplacementAction:
+    print("malloc size:", emu.get_argument(0))
+    return ReplacementAction.CALL_ORIGINAL
 
 
-def after_malloc(emu):
-    print("malloc returned:", hex(emu.ret))
+def after_malloc(emu: AndroidEmulatorBase) -> None:
+    print("malloc returned:", hex(emu.get_return_value()))
 
 
-def before_time(emu):
-    replacement_value = 150000
-    # emu.set_arg(0, replacement_value)   # Store result in r0/x0
-    emu.finish(replacement_value)
-    return ReplacementAction.SKIP_ORIGINAL  # Skip the original call
+def replace_time(emu: AndroidEmulatorBase) -> ReplacementAction:
+    emu.set_return_value(150000)
+    return ReplacementAction.SKIP_ORIGINAL
 
 
-def on_instruction(emu, info):
+def on_instruction(_emu: AndroidEmulatorBase, info: TraceInfo) -> TraceAction:
     print(info.format())
+    return TraceAction.CONTINUE
 
 
-with AndroidEmulator64(jni_handler=CustomJniHandler(), log=LogCategory.NONE) as emu:
-    # Load the target ELF and its dependencies
-    module = emu.load("path/to/libnative.so")
+def on_memory(_emu: AndroidEmulatorBase, access: MemoryAccess, address: int, size: int, value: int) -> MemoryHookAction:
+    print(access.name.lower(), hex(address), size, hex(value))
+    return MemoryHookAction.CONTINUE
 
-    # Hook malloc import
-    malloc_hook = emu.hook_symbol(
-        "malloc",
-        before_malloc,
-        after_malloc,
-        module_name=module.name,  # Module name is optional
-    )
 
-    # Replace time() result
-    time_hook = emu.hook_symbol(
-        "time",
-        before_time,
-        module_name=module.name,  # Module name is optional
-    )
+emu = AndroidEmulator64(jni_handler=CustomJniHandler(), log=LogCategory.NONE)
 
-    # Run JNI_OnLoad
-    emu.call_jni_onload(module)
+# Load the target ELF and its dependencies
+module = emu.load("path/to/libnative.so")
 
-    # Call JNI function
-    native = emu.java_class("com/example/Native")
-    result = native.call("getValue", "(I)I", 123)
+# Run JNI_OnLoad
+emu.call_jni_onload(module)
 
-    # Trace executed instructions within the target module
-    trace = emu.trace_module(on_instruction, module.name)
-    result = native.call("getValue", "(I)I", 123)
-    trace.close()
+# Call a registered static JNI method
+native = emu.java_class("com/example/Native")
+result = native.call("getValue", "(I)I", 123)
 
-    malloc_hook.close()
-    time_hook.close()
+# Observe malloc before and after the real function runs
+malloc_hook = emu.hook_symbol("malloc", before_malloc, after_malloc, module_name=module.name)
+result = native.call("getValue", "(I)I", 123)
+malloc_hook.unhook()
 
-    # Allocate memory
-    buffer = emu.malloc(32)
-    buffer.write_cstr("testing")
-    print(buffer.read_cstr())
-    emu.free(buffer)
+# Replace time() without calling the original function
+time_hook = emu.hook_symbol("time", replace_time, module_name=module.name)
+result = native.call("getValue", "(I)I", 123)
+time_hook.unhook()
 
-    # Call a regular ELF export by name
-    result = module.call_symbol("exported_symbol", 123)
+# Trace instructions from the target module
+trace = emu.trace_module(on_instruction, module.name)
+result = native.call("getValue", "(I)I", 123)
+trace.unhook()
+
+# Allocate typed guest memory and observe native access to it
+buffer = emu.malloc(32)
+buffer.write_cstr("testing")
+print(buffer.read_cstr())
+
+watchpoint = emu.watchpoint(int(buffer), on_memory, length=32)
+result = module.call_symbol("exported_symbol", int(buffer))
+watchpoint.unhook()
+
+emu.free(buffer)
+emu.close()
 ```
 
 ## Contributing

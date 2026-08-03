@@ -3,7 +3,7 @@ class EmuliteError(Exception):
 
 
 class EmulatorCrashed(EmuliteError):
-    pass
+    symbolized: bool = False
 
 
 class NestedExecution(EmuliteError):

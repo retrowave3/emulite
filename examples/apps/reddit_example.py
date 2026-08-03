@@ -29,9 +29,11 @@ def on_call(_emu: AndroidEmulatorBase, event: CallEvent) -> TraceAction:
 
 
 def decrypt_key(emu: AndroidEmulatorBase) -> object:
-    # Call events are emitted when native branches return, and the handle cleans itself up here.
-    with emu.call_trace(on_call, module_name="libreddit-ndk.so"):
-        return emu.call_static_native("com/reddit/media/common/apikeys/KeyUtil", "decryptGiphyApiKey", "()Ljava/lang/String;")
+    # Call events are emitted when native branches return.
+    trace = emu.call_trace(on_call, module_name="libreddit-ndk.so")
+    result = emu.call_static_native("com/reddit/media/common/apikeys/KeyUtil", "decryptGiphyApiKey", "()Ljava/lang/String;")
+    trace.unhook()
+    return result
 
 
 emu32 = setup_arm32()
@@ -41,3 +43,5 @@ key32 = decrypt_key(emu32)
 key64 = decrypt_key(emu64)
 print(f"giphy key arm32: {key32}")
 print(f"giphy key arm64: {key64}")
+emu32.close()
+emu64.close()

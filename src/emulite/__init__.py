@@ -28,6 +28,7 @@ from emulite.hooks.types import (
 )
 from emulite.loader import NativeModule, Symbol
 from emulite.memory.native_pointer import NativePointer
+from emulite.types import NativeArgument
 
 __all__ = [
     "AddressHook",
@@ -57,6 +58,7 @@ __all__ = [
     "MemoryHook",
     "MemoryHookAction",
     "MissingSlot",
+    "NativeArgument",
     "NativeModule",
     "NativePointer",
     "NestedExecution",

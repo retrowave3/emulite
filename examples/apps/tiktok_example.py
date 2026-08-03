@@ -29,14 +29,14 @@ def on_trace_step(_emu: AndroidEmulatorBase, info: TraceInfo) -> TraceAction:
 
 
 def before_memcpy(emu: AndroidEmulatorBase) -> ReplacementAction:
-    dst, src, n = emu.arg(0), emu.arg(1), emu.arg(2)  # x0, x1, x2
+    dst, src, n = emu.get_argument(0), emu.get_argument(1), emu.get_argument(2)
     print(f"memcpy({dst:#x}, {src:#x}, {n})")
     return ReplacementAction.CALL_ORIGINAL
 
 
 def before_time(emu: AndroidEmulatorBase) -> ReplacementAction:
     replacement_value = 123456789
-    emu.set_arg(0, replacement_value)  # store result in r0/x0
+    emu.set_return_value(replacement_value)
     print(f"replaced time: {replacement_value}")
     return ReplacementAction.SKIP_ORIGINAL
 
@@ -46,11 +46,15 @@ def encrypt(emu: AndroidEmulatorBase, data: bytes, trace: bool = False) -> objec
         return emu.call_static_native("com/bytedance/frameworks/encryptor/EncryptorUtil", "ttEncrypt", "([BI)[B", data, len(data))
 
     # Observe the real memcpy calls while replacing time() entirely with a deterministic result.
-    with emu.hook_symbol("memcpy", before_memcpy), emu.hook_symbol("time", before_time):
-        if trace:
-            with emu.trace_code(on_trace_step):
-                return run()
-        return run()
+    memcpy_hook = emu.hook_symbol("memcpy", before_memcpy)
+    time_hook = emu.hook_symbol("time", before_time)
+    trace_hook = emu.trace_code(on_trace_step) if trace else None
+    result = run()
+    if trace_hook is not None:
+        trace_hook.unhook()
+    time_hook.unhook()
+    memcpy_hook.unhook()
+    return result
 
 
 emu32 = setup_arm32()
@@ -62,3 +66,5 @@ emu64_result = encrypt(emu64, data, trace=False)
 
 print(f"ttencrypt arm32: {bytes(emu32_result).hex()}")
 print(f"ttencrypt arm64: {bytes(emu64_result).hex()}")
+emu32.close()
+emu64.close()

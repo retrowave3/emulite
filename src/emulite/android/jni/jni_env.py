@@ -249,8 +249,8 @@ class JNIEnv:
             self._native_return_slot = self.emu.trap.alloc_slot(self._native_return, "JNIEnv:native-return")
         saved_lr, saved_sp = (self.emu.lr, self.emu.sp)  # where Call*Method returns; SP to restore after the native
         ref_mark = self.dvm.local_mark()  # the native's local-ref frame (jclass + object args live here)
-        this_ref = self.dvm.add_local(method.getDeclaringClass()) if kind == "static" else self._arg(1)
-        self.emu._marshal_native(int(this_ref), arg_types, args)  # x0=env, x1=this, ints in x2.., fp in v0.., spill
+        receiver_ref = self.dvm.add_local(method.getDeclaringClass()) if kind == "static" else self._arg(1)
+        self.emu._marshal_native(int(receiver_ref), arg_types, args)  # x0=env, x1=object/class, then method arguments
         self.emu.lr = self._native_return_slot
         self._native_calls.append(NativeCall(ret, saved_lr, saved_sp, ref_mark))
         self.emu.pc = method.native_addr

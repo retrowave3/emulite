@@ -22,7 +22,6 @@ emu.load(LIB)
 
 # testJni(String, long, int, double, boolean, short, float, double, byte, long, float) -> void
 print("calling native testJni(...)")
-emu.call_static_native(
-    "com/github/unidbg/android/JniTest", "testJni", "(Ljava/lang/String;JIDZSFDBJF)V", "hello from python", 0x123456789ABCDEF, 0x789A, 0.12345, True, 0x123, 0.456, 0.789, 0x7F, 0x89ABCDEF, 0.123
-)
+emu.call_static_native("com/github/unidbg/android/JniTest", "testJni", "(Ljava/lang/String;JIDZSFDBJF)V", "hello from python", 0x123456789ABCDEF, 0x789A, 0.12345, True, 0x123, 0.456, 0.789, 0x7F, 0x89ABCDEF, 0.123)
 print("done")
+emu.close()
