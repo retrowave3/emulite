@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import struct
 
+from emulite.android.enums.errno import Errno
 from emulite.filesystem.types.ioctl_context import IoctlContext
 
 
@@ -26,26 +27,34 @@ class BinderDriver:
 
     _PACKAGE_MANAGER_HANDLE = 1
     _MAX_PARCEL = 4096  # cap on the transaction parcel we copy out of guest memory
+    _MAX_COMMAND_BUFFER = 0x10000
     _REPLY_BUDGET = 0x60  # worst-case bytes a BR_TRANSACTION_COMPLETE + BR_REPLY occupies
+    _TRANSACTION_DATA_SIZE = 56
 
     def __init__(self, context: IoctlContext) -> None:
         self._context = context
         self._replies: list[tuple[bytes, list[int]]] = []  # queued (reply_parcel, flat_object_offsets) FIFO
 
     def ioctl(self, request: int, arg: int) -> int:
+        if request >> 8 & 0xFF != 0x62:  # BINDER_IOCTL_MAGIC
+            return -Errno.ENOTTY
         if request & 0xFF == self._VERSION_NR and arg:
             self._context.mem.write_u32(arg, self._PROTOCOL_VERSION)
             return 0
         if request == self._BINDER_WRITE_READ and arg:
             return self._write_read(arg)
         self._context.log.vfs("binder: unhandled ioctl %#x", request)  # visible, not silently swallowed
-        return 0
+        return -Errno.ENOTTY
 
     def _write_read(self, arg: int) -> int:
         mem = self._context.mem
         wsize, wbuf = mem.read_u64(arg), mem.read_u64(arg + 16)
         rsize, rbuf = mem.read_u64(arg + 24), mem.read_u64(arg + 40)
-        self._consume_write(wbuf, wsize)
+        if wsize > self._MAX_COMMAND_BUFFER or (wsize and not wbuf) or (rsize and not rbuf):
+            return -Errno.EINVAL
+        consumed = self._consume_write(wbuf, wsize)
+        if consumed < 0:
+            return consumed
         mem.write_u64(arg + 8, wsize)  # write_consumed
         out = self._build_read(rsize)
         n = min(len(out), rsize)
@@ -54,20 +63,26 @@ class BinderDriver:
         mem.write_u64(arg + 32, n)  # read_consumed
         return 0
 
-    def _consume_write(self, wbuf: int, wsize: int) -> None:
+    def _consume_write(self, wbuf: int, wsize: int) -> int:
         mem = self._context.mem
         p, end = wbuf, wbuf + wsize
         while p + 4 <= end:  # each command: u32 word + payload of (word>>16) bytes
             cmd = mem.read_u32(p)
             body = p + 4
+            body_size = (cmd >> 16) & 0x3FFF
+            if body_size > end - body:
+                return -Errno.EINVAL
             if (cmd & 0xFFFF) in (self._BC_TRANSACTION, self._BC_TRANSACTION_SG):
+                if body_size < self._TRANSACTION_DATA_SIZE:
+                    return -Errno.EINVAL
                 handle, code = mem.read_u32(body), mem.read_u32(body + 16)
                 dsize, dbuf = mem.read_u64(body + 32), mem.read_u64(body + 48)
                 if dsize > self._MAX_PARCEL:
                     self._context.log.vfs("binder: parcel of %d bytes truncated to %d", dsize, self._MAX_PARCEL)
                 parcel = bytes(mem.read(dbuf, min(dsize, self._MAX_PARCEL))) if dbuf and dsize else b""
                 self._replies.append(self._service_reply(handle, code, parcel))
-            p = body + ((cmd >> 16) & 0x3FFF)
+            p = body + body_size
+        return 0 if p == end else -Errno.EINVAL
 
     def _build_read(self, rsize: int) -> bytes:
         out = b""

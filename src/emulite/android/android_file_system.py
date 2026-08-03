@@ -13,9 +13,11 @@ from emulite.android.enums.errno import Errno
 from emulite.android.io.ashmem_io import AshmemIO
 from emulite.android.io.device_io import DeviceIO
 from emulite.android.io.directory_io import DirectoryIO
+from emulite.android.io.enums.epoll_control_operation import EpollControlOperation
 from emulite.android.io.epoll_io import EpollIO
 from emulite.android.io.event_fd_io import EventFdIO
 from emulite.android.io.pipe_io import PipeIO
+from emulite.android.io.pipe_state import PipeState
 from emulite.android.io.regular_file_io import RegularFileIO
 from emulite.android.io.socket_io import SocketIO
 from emulite.android.io.stdio_io import StdioIO
@@ -185,27 +187,32 @@ class AndroidFileSystem:
         return self._install(left, fd_flags), self._install(right, fd_flags)
 
     def pipe(self, flags: int = 0) -> tuple[int, int]:
-        fifo = bytearray()
+        state = PipeState()
         nonblocking = bool(flags & OpenFlag.O_NONBLOCK)
         fd_flags = FdFlag.FD_CLOEXEC if flags & OpenFlag.O_CLOEXEC else FdFlag.NONE
-        return self._install(PipeIO(fifo, readable=True, nonblocking=nonblocking), fd_flags), self._install(PipeIO(fifo, readable=False, nonblocking=nonblocking), fd_flags)
+        return self._install(PipeIO(state, readable=True, nonblocking=nonblocking), fd_flags), self._install(PipeIO(state, readable=False, nonblocking=nonblocking), fd_flags)
 
     def eventfd(self, initval: int, *, semaphore: bool = False, nonblocking: bool = False, close_on_exec: bool = False) -> int:
         handle = EventFdIO(initval, semaphore=semaphore, nonblocking=nonblocking)
         return self._install(handle, FdFlag.FD_CLOEXEC if close_on_exec else FdFlag.NONE)
 
     def epoll_create(self, flags: int = 0) -> int:
-        return self._install(EpollIO(self), FdFlag.FD_CLOEXEC if flags & OpenFlag.O_CLOEXEC else FdFlag.NONE)
+        return self._install(EpollIO(self.handle), FdFlag.FD_CLOEXEC if flags & OpenFlag.O_CLOEXEC else FdFlag.NONE)
 
     def epoll_ctl(self, epfd: int, op: int, fd: int, events: int, data: int) -> int:
         ep = self.handle(epfd)
         if not isinstance(ep, EpollIO):
             return -Errno.EBADF
-        if op == 2:  # EPOLL_CTL_DEL
-            ep.watched.pop(fd, None)
-        else:  # EPOLL_CTL_ADD / EPOLL_CTL_MOD
-            ep.watched[fd] = (events, data)
-        return 0
+        handle = self.handle(fd)
+        if handle is None:
+            return -Errno.EBADF
+        if handle is ep:
+            return -Errno.EINVAL
+        try:
+            operation = EpollControlOperation(op)
+        except ValueError:
+            return -Errno.EINVAL
+        return ep.control(operation, fd, handle, events, data)
 
     def epoll_wait(self, epfd: int, maxevents: int) -> list[tuple[int, int, int]] | None:
         ep = self.handle(epfd)

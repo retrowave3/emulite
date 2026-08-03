@@ -11,10 +11,11 @@ from emulite.filesystem.types.ioctl_context import IoctlContext
 class TtyIO(FileIO):
     _TTY_RDEV = 1280  # makedev(5, 0)
 
-    def read(self, count: int) -> bytes:
-        return b""
+    def read(self, count: int) -> bytes | int:
+        return -Errno.EINVAL if count < 0 else b""
 
     def write(self, data: bytes) -> int:
+        data = data[: self._MAX_RW]
         sys.stdout.write(data.decode("utf-8", "replace"))
         return len(data)
 

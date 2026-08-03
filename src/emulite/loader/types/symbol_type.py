@@ -1,14 +1,3 @@
-from enum import Enum, auto
+from emulite.loader.enums.symbol_type import SymbolType
 
-
-class SymbolType(Enum):
-    """ELF symbol kind."""
-
-    NOTYPE = auto()
-    OBJECT = auto()
-    FUNC = auto()
-    SECTION = auto()
-    FILE = auto()
-    COMMON = auto()
-    TLS = auto()
-    GNU_IFUNC = auto()
+__all__ = ["SymbolType"]

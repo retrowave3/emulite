@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from emulite.loader.types.symbol_binding import SymbolBinding
-from emulite.loader.types.symbol_type import SymbolType
+from emulite.loader.enums.symbol_binding import SymbolBinding
+from emulite.loader.enums.symbol_type import SymbolType
 
 
 @dataclass

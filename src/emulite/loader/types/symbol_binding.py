@@ -1,10 +1,3 @@
-from enum import Enum, auto
+from emulite.loader.enums.symbol_binding import SymbolBinding
 
-
-class SymbolBinding(Enum):
-    """ELF symbol visibility binding."""
-
-    LOCAL = auto()
-    GLOBAL = auto()
-    WEAK = auto()
-    GNU_UNIQUE = auto()
+__all__ = ["SymbolBinding"]

@@ -18,6 +18,8 @@ class DeviceIO(BufferBackedIO):
         self._binder: BinderDriver | None = None
 
     def read(self, count: int) -> bytes | int:
+        if count < 0:
+            return -Errno.EINVAL
         count = min(count, self._MAX_RW)
         if self.kind == "urandom" or self.kind == "random":
             return os.urandom(count)
@@ -29,7 +31,7 @@ class DeviceIO(BufferBackedIO):
 
     def write(self, data: bytes) -> int:
         if self.kind == "null" or self.kind == "zero":
-            return len(data)  # discard
+            return min(len(data), self._MAX_RW)  # discard
         return self._buffered_write(data)
 
     def ioctl(self, request: int, arg: int, context: IoctlContext) -> int:

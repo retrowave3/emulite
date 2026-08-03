@@ -375,7 +375,7 @@ class AndroidLibcHooks64:
     def _android_log_print(self, emu: "AndroidEmulator64") -> int:
         priority, tag_ptr, fmt_ptr = emu.arg(0), emu.arg(1), emu.arg(2)
         tag = emu.mem.read_cstr(tag_ptr) if tag_ptr else "?"
-        message = cformat.RegisterArgs(emu, 3).format(emu.mem.read_cstr(fmt_ptr)) if fmt_ptr else ""
+        message = cformat.RegisterArgs64(emu, 3).format(emu.mem.read_cstr(fmt_ptr)) if fmt_ptr else ""
         return self._log_record(emu, priority, tag, message)
 
     def _android_log_write(self, emu: "AndroidEmulator64") -> int:
@@ -387,7 +387,7 @@ class AndroidLibcHooks64:
     def _android_log_vprint(self, emu: "AndroidEmulator64") -> int:
         priority, tag_ptr, fmt_ptr, ap = emu.arg(0), emu.arg(1), emu.arg(2), emu.arg(3)
         tag = emu.mem.read_cstr(tag_ptr) if tag_ptr else "?"
-        message = cformat.VaListArgs(emu, ap).format(emu.mem.read_cstr(fmt_ptr)) if fmt_ptr else ""
+        message = cformat.VaListArgs64(emu, ap).format(emu.mem.read_cstr(fmt_ptr)) if fmt_ptr else ""
         return self._log_record(emu, priority, tag, message)
 
     def _android_log_buf_write(self, emu: "AndroidEmulator64") -> int:
@@ -399,7 +399,7 @@ class AndroidLibcHooks64:
     def _android_log_buf_print(self, emu: "AndroidEmulator64") -> int:
         priority, tag_ptr, fmt_ptr = emu.arg(1), emu.arg(2), emu.arg(3)
         tag = emu.mem.read_cstr(tag_ptr) if tag_ptr else "?"
-        message = cformat.RegisterArgs(emu, 4).format(emu.mem.read_cstr(fmt_ptr)) if fmt_ptr else ""
+        message = cformat.RegisterArgs64(emu, 4).format(emu.mem.read_cstr(fmt_ptr)) if fmt_ptr else ""
         return self._log_record(emu, priority, tag, message)
 
     def _android_log_is_loggable(self, emu: "AndroidEmulator64") -> int:
@@ -410,7 +410,7 @@ class AndroidLibcHooks64:
         cond_ptr, tag_ptr, fmt_ptr = emu.arg(0), emu.arg(1), emu.arg(2)
         cond = emu.mem.read_cstr(cond_ptr) if cond_ptr else "null"
         tag = emu.mem.read_cstr(tag_ptr) if tag_ptr else "?"
-        fmt = cformat.RegisterArgs(emu, 3).format(emu.mem.read_cstr(fmt_ptr)) if fmt_ptr else ""
+        fmt = cformat.RegisterArgs64(emu, 3).format(emu.mem.read_cstr(fmt_ptr)) if fmt_ptr else ""
         emu.log.crash("__android_log_assert [%s] %s: %s", tag, cond, fmt)
         raise EmulatorCrashed(f"__android_log_assert: [{tag}] {cond}: {fmt}")
 
@@ -424,32 +424,32 @@ class AndroidLibcHooks64:
 
     def _snprintf(self, emu: "AndroidEmulator64") -> int:
         buf, size, fmt = emu.arg(0), emu.arg(1), emu.arg(2)
-        text = cformat.RegisterArgs(emu, 3).format(emu.mem.read_cstr(fmt))
+        text = cformat.RegisterArgs64(emu, 3).format(emu.mem.read_cstr(fmt))
         return self._emit_formatted(emu, buf, size, text, "snprintf")
 
     def _sprintf(self, emu: "AndroidEmulator64") -> int:
         buf, fmt = emu.arg(0), emu.arg(1)
-        text = cformat.RegisterArgs(emu, 2).format(emu.mem.read_cstr(fmt))
+        text = cformat.RegisterArgs64(emu, 2).format(emu.mem.read_cstr(fmt))
         return self._emit_formatted(emu, buf, 1 << 62, text, "sprintf")
 
     def _vsnprintf(self, emu: "AndroidEmulator64") -> int:
         buf, size, fmt, ap = emu.arg(0), emu.arg(1), emu.arg(2), emu.arg(3)
-        text = cformat.VaListArgs(emu, ap).format(emu.mem.read_cstr(fmt))
+        text = cformat.VaListArgs64(emu, ap).format(emu.mem.read_cstr(fmt))
         return self._emit_formatted(emu, buf, size, text, "vsnprintf")
 
     def _vsprintf(self, emu: "AndroidEmulator64") -> int:
         buf, fmt, ap = emu.arg(0), emu.arg(1), emu.arg(2)
-        text = cformat.VaListArgs(emu, ap).format(emu.mem.read_cstr(fmt))
+        text = cformat.VaListArgs64(emu, ap).format(emu.mem.read_cstr(fmt))
         return self._emit_formatted(emu, buf, 1 << 62, text, "vsprintf")
 
     def _printf(self, emu: "AndroidEmulator64") -> int:
-        text = cformat.RegisterArgs(emu, 1).format(emu.mem.read_cstr(emu.arg(0)))
+        text = cformat.RegisterArgs64(emu, 1).format(emu.mem.read_cstr(emu.arg(0)))
         sys.stdout.write(text)
         emu.log.libc("printf => %r", text)
         return len(text.encode("utf-8"))
 
     def _fprintf(self, emu: "AndroidEmulator64") -> int:
-        text = cformat.RegisterArgs(emu, 2).format(emu.mem.read_cstr(emu.arg(1)))
+        text = cformat.RegisterArgs64(emu, 2).format(emu.mem.read_cstr(emu.arg(1)))
         sys.stdout.write(text)
         emu.log.libc("fprintf => %r", text)
         return len(text.encode("utf-8"))

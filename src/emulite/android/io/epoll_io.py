@@ -1,27 +1,44 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
 
+from emulite.android.enums.errno import Errno
+from emulite.android.io.enums.epoll_control_operation import EpollControlOperation
 from emulite.filesystem.file_io import FileIO
 from emulite.filesystem.flags.open_flag import OpenFlag
 from emulite.filesystem.structs.file_stat import FileStat
 
-if TYPE_CHECKING:
-    from emulite.android.android_file_system import AndroidFileSystem
-
 
 class EpollIO(FileIO):
-    def __init__(self, vfs: AndroidFileSystem):
+    _EPOLLIN = 0x1
+
+    def __init__(self, handle_for: Callable[[int], FileIO | None]):
         super().__init__("<epoll>", OpenFlag.O_RDONLY)
-        self._vfs = vfs
-        self.watched: dict[int, tuple[int, int]] = {}
+        self._handle_for = handle_for
+        self._watched: dict[int, tuple[FileIO, int, int]] = {}
+
+    def control(self, operation: EpollControlOperation, fd: int, handle: FileIO, events: int, data: int) -> int:
+        if operation is EpollControlOperation.ADD:
+            if fd in self._watched:
+                return -Errno.EEXIST
+            self._watched[fd] = (handle, events, data)
+            return 0
+        if fd not in self._watched:
+            return -Errno.ENOENT
+        if operation is EpollControlOperation.DELETE:
+            del self._watched[fd]
+        else:
+            self._watched[fd] = (handle, events, data)
+        return 0
 
     def ready(self) -> list[tuple[int, int, int]]:
-        out = []
-        for fd, (events, data) in self.watched.items():
-            handle = self._vfs.handle(fd)
-            if handle is not None and handle.can_read():
-                out.append((fd, events & 0x1 or 0x1, data))  # report EPOLLIN
+        out: list[tuple[int, int, int]] = []
+        for fd, (registered, events, data) in list(self._watched.items()):
+            handle = self._handle_for(fd)
+            if handle is not registered:
+                del self._watched[fd]
+            elif events & self._EPOLLIN and handle.can_read():
+                out.append((fd, self._EPOLLIN, data))
         return out
 
     def can_read(self) -> bool:

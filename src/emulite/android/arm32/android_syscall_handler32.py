@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING, Callable
 from emulite.android.enums.errno import Errno
 from emulite.android.enums.sockopt import SockOpt
 from emulite.android.flags.clone_flag import CloneFlag
+from emulite.android.flags.event_fd_flag import EventFdFlag
+from emulite.android.flags.memory_remap_flag import MemoryRemapFlag
 from emulite.android.flags.mmap_flag import MmapFlag
+from emulite.android.flags.timer_flag import TimerFlag
 from emulite.android.structs.dirent64 import Dirent64
 from emulite.android.structs.epoll_event import EpollEvent
 from emulite.android.structs.iovec32 import Iovec32
@@ -1077,7 +1080,7 @@ class AndroidSyscallHandler32:
     def _clock_nanosleep_time64(self, clockid: int, flags: int, req_ptr: int, rem_ptr: int) -> int:
         sec, nsec = self._mem.read_s64(req_ptr), self._mem.read_u64(req_ptr + 8)
         request_ns = sec * 1_000_000_000 + nsec
-        if flags & 1:  # TIMER_ABSTIME: advance the virtual clock to the deadline
+        if flags & TimerFlag.ABSTIME:
             clock = self._emu.device.clock
             (clock.advance_to_realtime if clockid in (0, 5) else clock.advance_to_monotonic)(request_ns)
         else:
@@ -1150,10 +1153,10 @@ class AndroidSyscallHandler32:
         return len(data)
 
     def _eventfd2(self, initval: int, flags: int) -> int:
-        valid_flags = 1 | int(OpenFlag.O_NONBLOCK | OpenFlag.O_CLOEXEC)
+        valid_flags = int(EventFdFlag.SEMAPHORE | EventFdFlag.NONBLOCK | EventFdFlag.CLOSE_ON_EXEC)
         if flags & ~valid_flags:
             return -Errno.EINVAL
-        fd = self._emu.vfs.eventfd(initval, semaphore=bool(flags & 1), nonblocking=bool(flags & OpenFlag.O_NONBLOCK), close_on_exec=bool(flags & OpenFlag.O_CLOEXEC))
+        fd = self._emu.vfs.eventfd(initval, semaphore=bool(flags & EventFdFlag.SEMAPHORE), nonblocking=bool(flags & EventFdFlag.NONBLOCK), close_on_exec=bool(flags & EventFdFlag.CLOSE_ON_EXEC))
         self._log.syscall("eventfd2(%d, flags=%#x) => %d", initval, flags, fd)
         return fd
 
@@ -1776,7 +1779,7 @@ class AndroidSyscallHandler32:
     def _clock_nanosleep(self, clockid: int, flags: int, req_ptr: int, rem_ptr: int) -> int:
         sec, nsec = self._mem.read_s32(req_ptr), self._mem.read_s32(req_ptr + 4)
         request_ns = sec * 1_000_000_000 + nsec
-        if flags & 1:  # TIMER_ABSTIME: advance the virtual clock to the deadline
+        if flags & TimerFlag.ABSTIME:
             clock = self._emu.device.clock
             (clock.advance_to_realtime if clockid in (0, 5) else clock.advance_to_monotonic)(request_ns)
         else:
@@ -2351,7 +2354,9 @@ class AndroidSyscallHandler32:
         return 0
 
     def _mremap(self, old_address: int, old_size: int, new_size: int, flags: int, new_address: int) -> int:
-        maymove, fixed, dontunmap = 1, 2, 4
+        valid_flags = int(MemoryRemapFlag.MAY_MOVE | MemoryRemapFlag.FIXED | MemoryRemapFlag.DO_NOT_UNMAP)
+        if flags & ~valid_flags:
+            return -Errno.EINVAL
         if old_size == 0 or new_size == 0:
             self._log.syscall("mremap(%#x, %#x->%#x) => -EINVAL", old_address, old_size, new_size, level=LogLevel.WARN)
             return -Errno.EINVAL
@@ -2362,16 +2367,16 @@ class AndroidSyscallHandler32:
                     self._mem.unmap(old_address + new_aligned, old_aligned - new_aligned)
                 self._log.syscall("mremap(%#x, %#x->%#x) => %#x (in place)", old_address, old_size, new_size, old_address)
                 return old_address
-            if not (flags & maymove) and not (flags & fixed):
+            if not (flags & MemoryRemapFlag.MAY_MOVE) and not (flags & MemoryRemapFlag.FIXED):
                 self._log.syscall("mremap(%#x) can't grow in place (no MAYMOVE) => -ENOMEM", old_address, level=LogLevel.WARN)
                 return -Errno.ENOMEM
-            if flags & fixed:
+            if flags & MemoryRemapFlag.FIXED:
                 base = new_address
                 self._mem.map(base, new_aligned, RW, "mremap-fixed", replace=True)
             else:
                 base = self._mem.mmap(new_aligned, RW, "mremap")
             self._mem.write(base, self._mem.read(old_address, old_size))
-            if not (flags & dontunmap):
+            if not (flags & MemoryRemapFlag.DO_NOT_UNMAP):
                 self._mem.unmap(old_address, old_aligned)
             self._log.syscall("mremap(%#x, %#x->%#x, flags=%#x) => %#x", old_address, old_size, new_size, flags, base)
             return base

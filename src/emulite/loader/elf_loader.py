@@ -7,10 +7,12 @@ from typing import TYPE_CHECKING, ClassVar
 
 import lief
 
-from emulite.android.flags.pf_flag import PfFlag
 from emulite.common.errors import ElfFormatError, EmuliteError
 from emulite.common.log import Logger, LogLevel
 from emulite.cpu.backend import CpuArch, MemoryProtectionFlag
+from emulite.loader.enums.symbol_binding import SymbolBinding
+from emulite.loader.enums.symbol_type import SymbolType
+from emulite.loader.flags.program_header_flag import ProgramHeaderFlag
 from emulite.loader.module.linux_module import LinuxModule
 from emulite.loader.module.native_module import NativeModule
 from emulite.loader.module.symbol import Symbol
@@ -18,8 +20,6 @@ from emulite.loader.module.virtual_module import VirtualModule
 from emulite.loader.types.deferred_relocation import DeferredRelocation
 from emulite.loader.types.module_segment import ModuleSegment
 from emulite.loader.types.relocation_dialect import RelocationDialect
-from emulite.loader.types.symbol_binding import SymbolBinding
-from emulite.loader.types.symbol_type import SymbolType
 from emulite.memory import RW, RX, MemoryLayout, MemoryManager
 
 if TYPE_CHECKING:
@@ -68,11 +68,11 @@ class ElfLoader:
     @staticmethod
     def _seg_perms(elf_flags: int) -> MemoryProtectionFlag:
         perms = MemoryProtectionFlag.NONE
-        if elf_flags & PfFlag.PF_R:
+        if elf_flags & ProgramHeaderFlag.READ:
             perms |= MemoryProtectionFlag.READ
-        if elf_flags & PfFlag.PF_W:
+        if elf_flags & ProgramHeaderFlag.WRITE:
             perms |= MemoryProtectionFlag.WRITE
-        if elf_flags & PfFlag.PF_X:
+        if elf_flags & ProgramHeaderFlag.EXECUTE:
             perms |= MemoryProtectionFlag.EXEC
         return perms
 

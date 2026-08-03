@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import struct
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from emulite.android.cformat.var_args import VarArgs
 
@@ -10,14 +10,16 @@ if TYPE_CHECKING:
 
 
 class VaListArgs32(VarArgs):
-    _WIDE_LENGTHS = ("ll", "q", "j")
+    """Read an AArch32 ``va_list`` cursor using AAPCS alignment."""
 
-    def __init__(self, emu: "AndroidEmulator32", valist_ptr: int):
+    _WIDE_LENGTHS: ClassVar[frozenset[str]] = frozenset(("ll", "q", "j"))
+
+    def __init__(self, emu: AndroidEmulator32, valist_ptr: int):
         super().__init__(emu)
         self._mem = emu.mem
         self._cursor = valist_ptr
 
-    def integer(self, wide: bool) -> int:
+    def integer(self, wide: bool = False) -> int:
         if wide:
             self._cursor = (self._cursor + 7) & ~7
             value = self._mem.read_u64(self._cursor)

@@ -19,12 +19,13 @@ class StdioIO(FileIO):
     def is_stdio(self) -> bool:
         return True
 
-    def read(self, count: int) -> bytes:
-        return b""
+    def read(self, count: int) -> bytes | int:
+        return -Errno.EINVAL if count < 0 else b""
 
     def write(self, data: bytes) -> int:
         if self.fd == 0:
             return -Errno.EBADF  # stdin isn't writable
+        data = data[: self._MAX_RW]
         printable = all(0x20 <= b < 0x7F or b in (0x09, 0x0A, 0x0D) for b in data)
         sys.stdout.write(data.decode("utf-8", "replace") if printable else f"[fd{self.fd}-hex {len(data)}] {data.hex()}\n")
         return len(data)

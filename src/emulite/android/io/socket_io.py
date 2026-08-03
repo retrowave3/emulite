@@ -17,22 +17,38 @@ class SocketIO(FileIO):
         self.handler: Callable[[bytes], bytes] | None = None  # a named-socket sink (logdw/dns/...)
         self.inbox = bytearray()
         self.connected_path: str | None = None
+        self._peer_closed = False
+        self._closed = False
 
     def deliver(self, data: bytes) -> None:
-        self.inbox.extend(data)
+        if not self._closed:
+            self.inbox.extend(data[: self._MAX_RW])
 
     def sendto(self, data: bytes, flags: int, dest_addr: int, addrlen: int) -> int:
+        if self._closed:
+            return -Errno.EBADF
+        data = data[: self._MAX_RW]
+        if self._peer_closed:
+            return -Errno.EPIPE
         if self.handler is not None:
             reply = self.handler(bytes(data)) or b""
             if reply:
-                self.inbox.extend(reply)
+                self.inbox.extend(reply[: self._MAX_RW])
         elif self.peer is not None:
+            if self.peer._closed:
+                return -Errno.EPIPE
             self.peer.deliver(bytes(data))
         return len(data)
 
     def recvfrom(self, count: int, flags: int, src_addr: int, addrlen: int) -> bytes | int:
+        if self._closed:
+            return -Errno.EBADF
         if count < 0:
             return -Errno.EINVAL
+        if count == 0:
+            return b""
+        if not self.inbox:
+            return b"" if self._peer_closed else -Errno.EAGAIN
         chunk = bytes(self.inbox[: min(count, self._MAX_RW)])
         if not (flags & 0x2):  # MSG_PEEK reads without consuming
             del self.inbox[: len(chunk)]
@@ -45,7 +61,16 @@ class SocketIO(FileIO):
         return self.sendto(data, 0, 0, 0)
 
     def can_read(self) -> bool:
-        return bool(self.inbox)
+        return bool(self.inbox) or self._peer_closed
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self.peer is not None:
+            self.peer._peer_closed = True
+            self.peer.peer = None
+            self.peer = None
 
     def ioctl(self, request: int, arg: int, context: IoctlContext) -> int:
         if request & 0xFFFF == 0x541B and arg:  # FIONREAD -> bytes available to read

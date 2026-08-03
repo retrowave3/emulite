@@ -1,5 +1,3 @@
 from emulite.loader.flags.program_header_flag import ProgramHeaderFlag
 
-PfFlag = ProgramHeaderFlag
-
-__all__ = ["PfFlag"]
+__all__ = ["ProgramHeaderFlag"]

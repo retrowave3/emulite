@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import struct
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from emulite.android.cformat.var_args import VarArgs
 from emulite.cpu.registers.arm32_reg import Arm32Reg
@@ -11,9 +11,13 @@ if TYPE_CHECKING:
 
 
 class RegisterArgs32(VarArgs):
-    _WIDE_LENGTHS = ("ll", "q", "j")
+    """Read AArch32 variadic arguments from core registers and the stack."""
 
-    def __init__(self, emu: "AndroidEmulator32", gp_start: int):
+    _WIDE_LENGTHS: ClassVar[frozenset[str]] = frozenset(("ll", "q", "j"))
+
+    def __init__(self, emu: AndroidEmulator32, gp_start: int):
+        if not 0 <= gp_start <= 4:
+            raise ValueError("gp_start must be between 0 and 4")
         super().__init__(emu)
         self._core = gp_start
         self._stack = emu.sp
@@ -28,7 +32,7 @@ class RegisterArgs32(VarArgs):
         self._stack += 4
         return value
 
-    def integer(self, wide: bool) -> int:
+    def integer(self, wide: bool = False) -> int:
         if not wide:
             return self._core_word() if self._core < 4 else self._stack_word()
         if self._core % 2:

@@ -5,7 +5,7 @@ import struct
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar, cast
 
-from emulite.android.cformat import RegisterArgs32, VaListArgs, VaListArgs32, VarArgs
+from emulite.android.cformat import RegisterArgs32, VaListArgs32, VaListArgs64, VarArgs
 from emulite.android.dalvik_vm import DalvikVM
 from emulite.android.java.jvalue import JChar
 from emulite.android.java.lang.java_class import JavaClass
@@ -191,7 +191,7 @@ class JNIEnv:
     def _read_valist(self, arg_types: list[str], valist_ptr: int) -> list[object]:
         if self.emu.arch.cpu_arch is CpuArch.ARM:
             return self._read_from_varargs(VaListArgs32(cast("AndroidEmulator32", self.emu), valist_ptr), arg_types)
-        return self._read_from_varargs(VaListArgs(self.emu, valist_ptr), arg_types)
+        return self._read_from_varargs(VaListArgs64(self.emu, valist_ptr), arg_types)
 
     def _read_jvalues(self, arg_types: list[str], array_ptr: int) -> list[object]:
         out: list[object] = []
