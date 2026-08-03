@@ -7,6 +7,7 @@ from emulite.android.io.binder import BinderDriver
 from emulite.android.io.buffer_backed_io import BufferBackedIO
 from emulite.filesystem.flags.open_flag import OpenFlag
 from emulite.filesystem.structs.file_stat import FileStat
+from emulite.filesystem.types.ioctl_context import IoctlContext
 
 
 class DeviceIO(BufferBackedIO):
@@ -14,9 +15,9 @@ class DeviceIO(BufferBackedIO):
         super().__init__(path, bytearray(), OpenFlag.O_RDWR)
         self.kind = kind
         self.rdev = rdev
-        self._binder: "BinderDriver | None" = None
+        self._binder: BinderDriver | None = None
 
-    def read(self, count: int) -> bytes:
+    def read(self, count: int) -> bytes | int:
         count = min(count, self._MAX_RW)
         if self.kind == "urandom" or self.kind == "random":
             return os.urandom(count)
@@ -31,10 +32,10 @@ class DeviceIO(BufferBackedIO):
             return len(data)  # discard
         return self._buffered_write(data)
 
-    def ioctl(self, request: int, arg: int, fs: object) -> int:
+    def ioctl(self, request: int, arg: int, context: IoctlContext) -> int:
         if self.kind == "binder":
             if self._binder is None:
-                self._binder = BinderDriver(fs._emu)  # fs is the AndroidFileSystem (holds the emulator)
+                self._binder = BinderDriver(context)
             return self._binder.ioctl(request, arg)
         return -Errno.ENOTTY
 

@@ -1142,7 +1142,7 @@ class JNIEnv:
 
     def _new_string_utf(self) -> int | None:
         ptr = self._arg(1)
-        text = Mutf8.decode(self.emu.mem.read_cbytes(ptr)) if ptr else ""
+        text = Mutf8.decode(self.emu.mem.read_cstr_bytes(ptr)) if ptr else ""
         ref = self.dvm.add_local(JavaString(text))
         self.log.jni_call("NewStringUTF", repr(text), ref)
         return ref

@@ -29,7 +29,8 @@ from emulite.common.errors import UnimplementedSyscall, UnknownSyscall
 from emulite.common.log import LogCategory, LogLevel
 from emulite.cpu.backend import MemoryProtectionFlag
 from emulite.cpu.registers.arm32_reg import Arm32Reg
-from emulite.filesystem.enums.stat_type import StatType
+from emulite.filesystem.enums.stat_type import STAT_TYPE_MASK, StatType
+from emulite.filesystem.flags.open_flag import OpenFlag
 from emulite.filesystem.structs.file_stat import FileStat
 from emulite.memory import RW, MemoryLayout32
 
@@ -1149,7 +1150,10 @@ class AndroidSyscallHandler32:
         return len(data)
 
     def _eventfd2(self, initval: int, flags: int) -> int:
-        fd = self._emu.vfs.eventfd(initval, bool(flags & 1))
+        valid_flags = 1 | int(OpenFlag.O_NONBLOCK | OpenFlag.O_CLOEXEC)
+        if flags & ~valid_flags:
+            return -Errno.EINVAL
+        fd = self._emu.vfs.eventfd(initval, semaphore=bool(flags & 1), nonblocking=bool(flags & OpenFlag.O_NONBLOCK), close_on_exec=bool(flags & OpenFlag.O_CLOEXEC))
         self._log.syscall("eventfd2(%d, flags=%#x) => %d", initval, flags, fd)
         return fd
 
@@ -1157,7 +1161,7 @@ class AndroidSyscallHandler32:
         return self._eventfd2(initval, 0)
 
     def _epoll_create1(self, flags: int) -> int:
-        fd = self._emu.vfs.epoll_create()
+        fd = self._emu.vfs.epoll_create(flags)
         self._log.syscall("epoll_create1(flags=%#x) => %d", flags, fd)
         return fd
 
@@ -1188,15 +1192,13 @@ class AndroidSyscallHandler32:
         self._log.syscall("dup(%d) => %d", oldfd, result)
         return result
 
-    def _dup3(self, oldfd: int, newfd: int, _flags: int) -> int:
+    def _dup3(self, oldfd: int, newfd: int, flags: int) -> int:
         if oldfd == newfd:
             self._log.syscall("dup3(%d, %d) => -EINVAL", oldfd, newfd, level=LogLevel.WARN)
             return -Errno.EINVAL
-        if self._emu.vfs.fstat(oldfd) is None:
-            self._log.syscall("dup3(%d, %d) => -EBADF", oldfd, newfd, level=LogLevel.WARN)
-            return -Errno.EBADF
-        self._emu.vfs.close(newfd)
-        result = self._emu.vfs.dup_to(oldfd, newfd)
+        if flags & ~OpenFlag.O_CLOEXEC:
+            return -Errno.EINVAL
+        result = self._emu.vfs.dup_to(oldfd, newfd, close_on_exec=bool(flags & OpenFlag.O_CLOEXEC))
         self._log.syscall("dup3(%d, %d) => %d", oldfd, newfd, result)
         return result
 
@@ -1209,15 +1211,9 @@ class AndroidSyscallHandler32:
         return self._dup3(oldfd, newfd, 0)
 
     def _fcntl(self, fd: int, cmd: int, arg: int) -> int:
-        if self._emu.vfs.fstat(fd) is None:
-            self._log.syscall("fcntl(%d, cmd=%d) => -EBADF", fd, cmd, level=LogLevel.WARN)
-            return -Errno.EBADF
-        if cmd in (0, 1030):
-            result = self._emu.vfs.dup(fd, min_fd=arg)
-            self._log.syscall("fcntl(%d, F_DUPFD, %d) => %d", fd, arg, result)
-            return result
-        self._log.syscall("fcntl(%d, cmd=%d) => 0", fd, cmd)
-        return 0
+        result = self._emu.vfs.fcntl(fd, cmd, arg)
+        self._log.syscall("fcntl(%d, cmd=%d, arg=%d) => %d", fd, cmd, arg, result)
+        return result
 
     def _fcntl64(self, fd: int, cmd: int, arg: int) -> int:
         return self._fcntl(fd, cmd, arg)
@@ -1411,7 +1407,7 @@ class AndroidSyscallHandler32:
         raise UnimplementedSyscall("vhangup", 111)
 
     def _pipe2(self, pipefd_ptr: int, flags: int) -> int:
-        read_fd, write_fd = self._emu.vfs.pipe()
+        read_fd, write_fd = self._emu.vfs.pipe(flags)
         self._mem.write_u32(pipefd_ptr, read_fd)
         self._mem.write_u32(pipefd_ptr + 4, write_fd)
         self._log.syscall("pipe2(flags=%#x) => [%d, %d]", flags, read_fd, write_fd)
@@ -2506,7 +2502,7 @@ class AndroidSyscallHandler32:
         return self._epoll_pwait(epfd, events_ptr, maxevents, 0, 0, 0)
 
     def _write_statx(self, buf: int, mode: int, size: int, rdev: int, uid: "int | None" = None, gid: "int | None" = None, ino: int = 0) -> None:
-        nlink = 2 if mode & StatType.S_IFMT == StatType.S_IFDIR else 1
+        nlink = 2 if mode & STAT_TYPE_MASK == StatType.S_IFDIR else 1
         p = self._profile
         Statx(
             nlink=nlink,
@@ -2556,7 +2552,7 @@ class AndroidSyscallHandler32:
         raise UnimplementedSyscall("__ARM_NR_usr32", 0x0F0004)
 
     def _write_stat(self, statbuf: int, mode: int, size: int, rdev: int, uid: "int | None" = None, gid: "int | None" = None, ino: int = 0) -> None:
-        nlink = 2 if mode & StatType.S_IFMT == StatType.S_IFDIR else 1
+        nlink = 2 if mode & STAT_TYPE_MASK == StatType.S_IFDIR else 1
         p = self._profile
         stat = FileStat(mode=mode, size=size, rdev=rdev, nlink=nlink, uid=p.process_uid if uid is None else uid, gid=p.process_gid if gid is None else gid, ino=ino, mtime=self._emu.device.file_mtime)
         Stat32.from_file_stat(stat).write_to(self._mem, statbuf)

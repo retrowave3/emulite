@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import capstone
 
 from emulite.cpu.backend import CpuArch
+from emulite.cpu.registers.arm32_reg import Arm32Reg
 
 if TYPE_CHECKING:
     from emulite.android_emulator import AndroidEmulatorBase
@@ -30,7 +31,7 @@ class Disassembler:
         if self._arm64:
             return self._cs
         if thumb is None:
-            thumb = bool(self._emu.reg(self._regs.CPSR) & self._CPSR_T)
+            thumb = bool(self._emu.reg(Arm32Reg.CPSR) & self._CPSR_T)
         return self._cs_thumb if thumb else self._cs_arm
 
     def one(self, code: bytes, address: int, thumb: bool | None = None) -> capstone.CsInsn | None:

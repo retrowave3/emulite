@@ -1,1 +1,1 @@
-
+"""CPU architecture implementations."""

@@ -12,7 +12,7 @@ class RegularFileIO(BufferBackedIO):
         self._writable = writable
         self._append = append
 
-    def read(self, count: int) -> bytes:
+    def read(self, count: int) -> bytes | int:
         return self._buffered_read(count)
 
     def write(self, data: bytes) -> int:
@@ -22,12 +22,17 @@ class RegularFileIO(BufferBackedIO):
             self._cursor = len(self._buffer)
         return self._buffered_write(data)
 
-    def pread(self, offset: int, count: int) -> bytes:
+    def pread(self, offset: int, count: int) -> bytes | int:
+        if offset < 0 or count < 0:
+            return -Errno.EINVAL
         return bytes(self._buffer[offset : offset + min(count, self._MAX_RW)])
 
     def pwrite(self, offset: int, data: bytes) -> int:
         if not self._writable:
             return -Errno.EBADF
+        if offset < 0:
+            return -Errno.EINVAL
+        data = data[: self._MAX_RW]
         end = offset + len(data)
         if end > len(self._buffer):
             self._buffer.extend(b"\x00" * (end - len(self._buffer)))
@@ -37,6 +42,8 @@ class RegularFileIO(BufferBackedIO):
     def ftruncate(self, length: int) -> int:
         if not self._writable:
             return -Errno.EBADF
+        if length < 0:
+            return -Errno.EINVAL
         if length < len(self._buffer):
             del self._buffer[length:]
         else:

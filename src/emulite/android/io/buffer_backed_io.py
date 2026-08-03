@@ -15,12 +15,15 @@ class BufferBackedIO(FileIO):
         self._buffer = buffer
         self._cursor = 0
 
-    def _buffered_read(self, count: int) -> bytes:
+    def _buffered_read(self, count: int) -> bytes | int:
+        if count < 0:
+            return -Errno.EINVAL
         chunk = bytes(self._buffer[self._cursor : self._cursor + min(count, self._MAX_RW)])
         self._cursor += len(chunk)
         return chunk
 
     def _buffered_write(self, data: bytes) -> int:
+        data = data[: self._MAX_RW]
         end = self._cursor + len(data)
         if end > len(self._buffer):
             self._buffer.extend(b"\x00" * (end - len(self._buffer)))

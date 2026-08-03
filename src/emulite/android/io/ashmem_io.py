@@ -3,6 +3,7 @@ from __future__ import annotations
 from emulite.filesystem.file_io import FileIO
 from emulite.filesystem.flags.open_flag import OpenFlag
 from emulite.filesystem.structs.file_stat import FileStat
+from emulite.filesystem.types.ioctl_context import IoctlContext
 
 
 class AshmemIO(FileIO):
@@ -13,7 +14,7 @@ class AshmemIO(FileIO):
         self.ashmem_size = 0
         self.ashmem_name = "dev/ashmem"
 
-    def ioctl(self, request: int, arg: int, fs: object) -> int:
+    def ioctl(self, request: int, arg: int, context: IoctlContext) -> int:
         command = request & 0xFF  # __ASHMEMIOC command byte
         if command == 0x03:  # ASHMEM_SET_SIZE (size passed by value)
             self.ashmem_size = arg
@@ -21,10 +22,10 @@ class AshmemIO(FileIO):
         if command == 0x04:  # ASHMEM_GET_SIZE
             return self.ashmem_size
         if command == 0x01 and arg:  # ASHMEM_SET_NAME
-            self.ashmem_name = fs._emu.mem.read_cstr(arg)
+            self.ashmem_name = context.mem.read_cstr(arg)
             return 0
         if command == 0x02 and arg:  # ASHMEM_GET_NAME
-            fs._emu.mem.write_cstr(arg, self.ashmem_name)
+            context.mem.write_cstr(arg, self.ashmem_name)
             return 0
         return 0  # SET_PROT_MASK / PIN / UNPIN / ... -> accept
 

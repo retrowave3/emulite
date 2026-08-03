@@ -7,12 +7,13 @@ if TYPE_CHECKING:
 
 
 class NativePointer:
-    __slots__ = ("_mem", "address")
-    CSTR_SCAN_LIMIT = 0x40000
+    """An integer-like guest pointer with convenient typed memory accessors."""
 
-    def __init__(self, mem: "MemoryManager", address: int):
+    __slots__ = ("_mem", "address")
+
+    def __init__(self, mem: MemoryManager, address: int) -> None:
         self._mem = mem
-        self.address = address & 0xFFFFFFFFFFFFFFFF
+        self.address = address & ((1 << (mem.arch.pointer_size * 8)) - 1)
 
     def __int__(self) -> int:
         return self.address
@@ -31,7 +32,14 @@ class NativePointer:
     def __repr__(self) -> str:
         return f"NativePointer(0x{self.address:x})"
 
-    def add(self, offset: int) -> "NativePointer":
+    def __format__(self, format_spec: str) -> str:
+        return format(self.address, format_spec)
+
+    @property
+    def is_null(self) -> bool:
+        return self.address == 0
+
+    def add(self, offset: int) -> NativePointer:
         return NativePointer(self._mem, self.address + offset)
 
     __add__ = add
@@ -69,13 +77,16 @@ class NativePointer:
     def read_double(self, offset: int = 0) -> float:
         return self._mem.read_double(self.address + offset)
 
-    def read_pointer(self, offset: int = 0) -> "NativePointer":
+    def read_pointer(self, offset: int = 0) -> NativePointer:
         return NativePointer(self._mem, self._mem.read_ptr(self.address + offset))  # 8 bytes arm64, 4 arm32
 
-    def read_cstr(self, limit: int = CSTR_SCAN_LIMIT) -> str:
-        return self._mem.read_cstr(self.address, limit)
+    def read_cstr_bytes(self, offset: int = 0) -> bytes:
+        return self._mem.read_cstr_bytes(self.address + offset)
 
-    def write(self, data: bytes, offset: int = 0) -> None:
+    def read_cstr(self, offset: int = 0) -> str:
+        return self._mem.read_cstr(self.address + offset)
+
+    def write(self, data: bytes | bytearray | memoryview, offset: int = 0) -> None:
         self._mem.write(self.address + offset, data)
 
     def write_u8(self, value: int, offset: int = 0) -> None:
@@ -108,8 +119,8 @@ class NativePointer:
     def write_double(self, value: float, offset: int = 0) -> None:
         self._mem.write_double(self.address + offset, value)
 
-    def write_pointer(self, target: "NativePointer | int", offset: int = 0) -> None:
+    def write_pointer(self, target: NativePointer | int, offset: int = 0) -> None:
         self._mem.write_ptr(self.address + offset, int(target))
 
-    def write_cstr(self, text: str) -> None:
-        self._mem.write_cstr(self.address, text)
+    def write_cstr(self, text: str, offset: int = 0) -> None:
+        self._mem.write_cstr(self.address + offset, text)

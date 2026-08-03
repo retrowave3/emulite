@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from emulite.cpu.arch.architecture_memory import ArchitectureMemory
 from emulite.cpu.arch.base import Arch
 from emulite.cpu.backend import Backend, CpuArch
 from emulite.cpu.registers.arm32_reg import Arm32Reg
@@ -26,9 +27,11 @@ class Arm32Arch(Arch):
     _CPACR_CP10_CP11 = 0xF << 20  # CPACR: full EL0/EL1 access to CP10/CP11 (VFP/NEON)
 
     def encode_svc(self, imm: int) -> int:
-        return self._SVC_A32 | (imm & 0xFFFFFF)
+        if not 0 <= imm <= 0xFFFFFF:
+            raise ValueError(f"A32 svc immediate must fit in 24 bits: {imm}")
+        return self._SVC_A32 | imm
 
-    def trapped_svc(self, backend: Backend, mem: object, pc: int) -> int | None:
+    def trapped_svc(self, backend: Backend, mem: ArchitectureMemory, pc: int) -> int | None:
         if backend.reg_read(Arm32Reg.CPSR) & self._CPSR_T:
             instr = mem.read_u16(pc - 2)
             return (instr & 0xFF) if (instr & self._SVC_T16_MASK) == self._SVC_T16 else None
@@ -43,7 +46,7 @@ class Arm32Arch(Arch):
         backend.reg_write(Arm32Reg.C1_C0_2, backend.reg_read(Arm32Reg.C1_C0_2) | self._CPACR_CP10_CP11)
         backend.reg_write(Arm32Reg.FPEXC, backend.reg_read(Arm32Reg.FPEXC) | self._FPEXC_EN)
 
-    def setup_tls(self, backend: Backend, mem: object, base: int, stack_guard: int, errno_addr: int) -> None:
+    def setup_tls(self, backend: Backend, mem: ArchitectureMemory, base: int, stack_guard: int, errno_addr: int) -> None:
         # bionic-32 TLS: 4-byte slots read via the read-only thread register (TPIDRURO = CP15 c13,c0,3).
         # Slot indices mirror bionic (SELF=0, THREAD_ID=1, STACK_GUARD=5, BIONIC_TLS=8 holding errno).
         mem.write_u32(base + 0 * 4, base)  # TLS_SLOT_SELF

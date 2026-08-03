@@ -7,6 +7,8 @@ from emulite.loader.module.native_module import NativeModule
 
 @dataclass
 class LinuxModule(NativeModule):
+    """An ELF module with Linux constructor and destructor metadata."""
+
     init: int = 0  # DT_INIT (absolute) or 0
     init_array: list[int] = field(default_factory=list)  # DT_INIT_ARRAY entries (absolute)
     fini: int = 0  # DT_FINI (absolute) or 0

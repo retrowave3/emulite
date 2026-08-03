@@ -7,14 +7,17 @@ from emulite.filesystem.structs.file_stat import FileStat
 
 
 class PipeIO(FileIO):
-    def __init__(self, fifo: bytearray, readable: bool):
-        super().__init__("<pipe>", OpenFlag.O_RDONLY if readable else OpenFlag.O_WRONLY)
+    def __init__(self, fifo: bytearray, readable: bool, nonblocking: bool = False):
+        flags = OpenFlag.O_RDONLY if readable else OpenFlag.O_WRONLY
+        super().__init__("<pipe>", flags | (OpenFlag.O_NONBLOCK if nonblocking else OpenFlag.O_RDONLY))
         self.fifo = fifo
         self.readable = readable
 
-    def read(self, count: int) -> bytes:
+    def read(self, count: int) -> bytes | int:
         if not self.readable:
-            return b""
+            return -Errno.EBADF
+        if count < 0:
+            return -Errno.EINVAL
         chunk = bytes(self.fifo[: min(count, self._MAX_RW)])
         del self.fifo[: len(chunk)]
         return chunk
@@ -22,6 +25,7 @@ class PipeIO(FileIO):
     def write(self, data: bytes) -> int:
         if self.readable:
             return -Errno.EBADF
+        data = data[: self._MAX_RW]
         self.fifo.extend(data)
         return len(data)
 

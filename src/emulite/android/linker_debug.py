@@ -169,7 +169,7 @@ class LinkerDebug:
         self._ensure_dep_libs()
         module_nodes = []
         seen: set[int] = set()
-        for module in self._emu.loader.modules.values():
+        for module in self._emu.loader.loaded_modules:
             if module.base == 0 or id(module) in seen:
                 continue
             seen.add(id(module))

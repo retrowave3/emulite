@@ -1,22 +1,20 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable
+from collections.abc import Callable
 
-from emulite.cpu.enums.cpu_arch import CpuArch  # noqa: F401 (seam re-export)
+from emulite.cpu.enums.cpu_arch import CpuArch
 from emulite.cpu.enums.hook_type import HookType
-from emulite.cpu.flags.memory_protection_flag import (  # noqa: F401 (seam re-export)
-    RW,
-    RWX,
-    RX,
-    MemoryProtectionFlag,
-)
+from emulite.cpu.flags.memory_protection_flag import RW, RWX, RX, MemoryProtectionFlag
+
+__all__ = ["RW", "RWX", "RX", "Backend", "CpuArch", "HookType", "MemoryProtectionFlag"]
 
 
 class Backend(ABC):
+    """Architecture-neutral interface implemented by CPU engines."""
+
     @abstractmethod
-    def destroy(self) -> None:
-        pass
+    def destroy(self) -> None: ...
 
     @abstractmethod
     def reg_read(self, reg_id: int) -> int: ...
@@ -46,14 +44,13 @@ class Backend(ABC):
     def mem_write(self, address: int, data: bytes) -> None: ...
 
     @abstractmethod
-    def hook_add(self, hook_type: HookType, callback: Callable, begin: int = 1, end: int = 0) -> int:
-        pass
+    def hook_add(self, hook_type: HookType, callback: Callable[..., object], begin: int = 1, end: int = 0) -> int: ...
 
     @abstractmethod
     def hook_del(self, handle: int) -> None: ...
 
-    def flush_tb(self) -> None:
-        pass
+    @abstractmethod
+    def flush_tb(self) -> None: ...
 
     @abstractmethod
     def emu_start(self, begin: int, until: int, timeout: int = 0, count: int = 0) -> None: ...
@@ -62,7 +59,7 @@ class Backend(ABC):
     def emu_stop(self) -> None: ...
 
     @abstractmethod
-    def context_save(self) -> Any: ...
+    def context_save(self) -> object: ...
 
     @abstractmethod
-    def context_restore(self, context: Any) -> None: ...
+    def context_restore(self, context: object) -> None: ...

@@ -12,3 +12,4 @@ class FcntlCmd(IntEnum):
     F_GETLK = 5  # get a record lock
     F_SETLK = 6  # set a record lock (non-blocking)
     F_SETLKW = 7  # set a record lock (blocking)
+    F_DUPFD_CLOEXEC = 1030

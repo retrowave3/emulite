@@ -2,6 +2,8 @@ from typing import NamedTuple
 
 
 class StatResult(NamedTuple):
+    """Filesystem metadata returned before architecture-specific packing."""
+
     mode: int  # st_mode (file type | permission bits)
     size: int  # st_size
     rdev: int  # st_rdev (device id, major:minor) — nonzero only for device nodes

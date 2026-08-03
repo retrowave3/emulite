@@ -5,6 +5,7 @@ import sys
 from emulite.android.enums.errno import Errno
 from emulite.filesystem.file_io import FileIO
 from emulite.filesystem.structs.file_stat import FileStat
+from emulite.filesystem.types.ioctl_context import IoctlContext
 
 
 class TtyIO(FileIO):
@@ -17,11 +18,11 @@ class TtyIO(FileIO):
         sys.stdout.write(data.decode("utf-8", "replace"))
         return len(data)
 
-    def ioctl(self, request: int, arg: int, fs: object) -> int:
+    def ioctl(self, request: int, arg: int, context: IoctlContext) -> int:
         cmd = request & 0xFFFF
         if cmd == 0x5413 and arg:  # TIOCGWINSZ -> a 24x80 window (ws_row | ws_col<<16)
-            fs._emu.mem.write_u32(arg, 24 | (80 << 16))
-            fs._emu.mem.write_u32(arg + 4, 0)  # ws_xpixel / ws_ypixel
+            context.mem.write_u32(arg, 24 | (80 << 16))
+            context.mem.write_u32(arg + 4, 0)  # ws_xpixel / ws_ypixel
             return 0
         if 0x5401 <= cmd <= 0x5460:  # the terminal ioctl range (TCGETS/TCSETS/TIOC*) -> ok
             return 0

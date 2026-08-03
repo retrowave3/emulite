@@ -4,6 +4,7 @@ import sys
 
 from emulite.android.enums.errno import Errno
 from emulite.filesystem.file_io import FileIO
+from emulite.filesystem.flags.open_flag import OpenFlag
 from emulite.filesystem.structs.file_stat import FileStat
 
 
@@ -11,7 +12,7 @@ class StdioIO(FileIO):
     _NULL_RDEV = 259  # /dev/null, makedev(1, 3)
 
     def __init__(self, fd: int):
-        super().__init__(("<stdin>", "<stdout>", "<stderr>")[fd])
+        super().__init__(("<stdin>", "<stdout>", "<stderr>")[fd], OpenFlag.O_RDONLY if fd == 0 else OpenFlag.O_WRONLY)
         self.fd = fd
 
     @property

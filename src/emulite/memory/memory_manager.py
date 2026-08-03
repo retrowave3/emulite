@@ -13,13 +13,16 @@ from emulite.memory.native_pointer import NativePointer
 
 
 class MemoryManager:
-    def __init__(self, backend: Backend, arch: "Arch", log: Logger):
+    """Own guest mappings and provide typed little-endian memory access."""
+
+    def __init__(self, backend: Backend, arch: Arch, log: Logger) -> None:
         self._be = backend
         self._arch = arch
         self._layout = arch.layout
         self._reg = arch.registers
         self._log = log
         self._heap = self._layout.HEAP_BASE  # brk cursor
+        self._heap_mapped_end = self._heap
         self._mmap = self._layout.MMAP_BASE  # anonymous-mmap cursor
         self._lib = self._layout.LIB_BASE  # module-placement cursor
         self._poison = self._layout.POISON_BASE  # unresolved-strong-symbol poison cursor (never mapped)
@@ -30,11 +33,16 @@ class MemoryManager:
         self.envp_ptr = 0
 
     @property
-    def arch(self) -> "Arch":
+    def arch(self) -> Arch:
         return self._arch
 
     def map(self, address: int, size: int, perms: MemoryProtectionFlag = RW, label: str = "", replace: bool = False) -> None:
-        size = self._layout.page_align_up(size)
+        """Map a fixed, page-aligned guest address range."""
+        self._validate_address(address)
+        if address % self._layout.PAGE_SIZE:
+            raise ValueError(f"map address must be page-aligned: {address:#x}")
+        size = self._validated_size(size, "map")
+        self._validate_range(address, size, "map")
         if replace:  # MAP_FIXED semantics: discard any existing mapping
             self._unmap_overlap(address, address + size)  # in [address, address+size) before mapping over it
         self._be.mem_map(address, size, perms)
@@ -42,14 +50,20 @@ class MemoryManager:
         self._log.memory("map   %#x..%#x perms=%d %s", address, address + size, perms, label)
 
     def _unmap_overlap(self, base: int, end: int) -> None:
-        for region in [r for r in self._regions if r.base < end and r.end > base]:
+        for region in [region for region in self._regions if region.base < end and region.end > base]:
             lo, hi = max(region.base, base), min(region.end, end)
             self._be.mem_unmap(lo, hi - lo)
+            self._carve(lo, hi)
 
     def protect(self, address: int, size: int, perms: MemoryProtectionFlag) -> None:
+        """Change permissions for every page touched by the requested range."""
+        self._validate_address(address)
+        if size <= 0:
+            raise ValueError(f"protect size must be positive: {size}")
         start = self._layout.page_align_down(address)
         size = self._layout.page_align_up(size + (address - start))
         address = start
+        self._validate_range(address, size, "protect")
         self._be.mem_protect(address, size, perms)
         pieces = [(max(r.base, address), min(r.end, address + size), r.label) for r in self._regions if r.base < address + size and r.end > address]
         self._carve(address, address + size)
@@ -59,9 +73,14 @@ class MemoryManager:
         self._log.memory("prot  %#x..%#x perms=%d", address, address + size, perms)
 
     def unmap(self, address: int, size: int) -> None:
+        """Unmap every page touched by the requested range."""
+        self._validate_address(address)
+        if size <= 0:
+            raise ValueError(f"unmap size must be positive: {size}")
         start = self._layout.page_align_down(address)
         size = self._layout.page_align_up(size + (address - start))
         address = start
+        self._validate_range(address, size, "unmap")
         self._be.mem_unmap(address, size)
         self._carve(address, address + size)
         self._log.memory("unmap %#x..%#x", address, address + size)
@@ -83,10 +102,11 @@ class MemoryManager:
         self._regions.append(MemoryRegion(base, size, perms, label))
         self._regions.sort(key=lambda r: r.base)
 
-    def iter_regions(self) -> list[MemoryRegion]:
-        return list(self._regions)
+    def iter_regions(self) -> tuple[MemoryRegion, ...]:
+        """Return an immutable snapshot of the currently tracked regions."""
+        return tuple(self._regions)
 
-    def find_region(self, address: int) -> "MemoryRegion | None":
+    def find_region(self, address: int) -> MemoryRegion | None:
         return next((r for r in self._regions if r.contains(address)), None)
 
     def permission_at(self, address: int) -> MemoryProtectionFlag:
@@ -94,7 +114,8 @@ class MemoryManager:
         return region.perms if region else MemoryProtectionFlag.NONE
 
     def mmap(self, size: int, perms: MemoryProtectionFlag = RW, label: str = "mmap") -> int:
-        need = self._layout.page_align_up(size)
+        """Allocate a page-aligned range from the anonymous mapping arena."""
+        need = self._validated_size(size, "mmap")
         hole = self._find_mmap_hole(need)
         if hole is not None:
             self.map(hole, need, perms, label)
@@ -106,7 +127,7 @@ class MemoryManager:
         self.map(base, need, perms, label)
         return base
 
-    def _find_mmap_hole(self, need: int) -> "int | None":
+    def _find_mmap_hole(self, need: int) -> int | None:
         cursor = self._layout.MMAP_BASE
         for region in sorted((r for r in self._regions if self._layout.MMAP_BASE <= r.base < self._mmap), key=lambda r: r.base):
             if region.base - cursor >= need:
@@ -115,6 +136,11 @@ class MemoryManager:
         return cursor if self._mmap - cursor >= need else None
 
     def reserve_lib(self, size: int, align: int = 0) -> int:
+        """Reserve an address range in the library arena without mapping it."""
+        if size <= 0:
+            raise ValueError(f"library reservation size must be positive: {size}")
+        if align < 0 or (align and align & (align - 1)):
+            raise ValueError(f"library alignment must be zero or a power of two: {align}")
         align = max(align, self._layout.PAGE_SIZE)
         base = (self._lib + align - 1) & ~(align - 1)
         end = base + self._layout.page_align_up(size) + self._layout.PAGE_SIZE
@@ -132,14 +158,19 @@ class MemoryManager:
         return addr
 
     def brk(self, addr: int = 0) -> int:
+        """Query or update the process break while mapping complete backing pages."""
         if addr == 0:
             return self._heap
+        if addr < self._layout.HEAP_BASE:
+            raise ValueError(f"brk cannot move below HEAP_BASE {self._layout.HEAP_BASE:#x}: {addr:#x}")
         if addr > self._layout.MMAP_BASE:
             raise EmulatorCrashed(f"brk exhausted: {addr:#x} would cross into MMAP_BASE {self._layout.MMAP_BASE:#x}")
-        if addr > self._heap:
-            self.map(self._heap, addr - self._heap, RW, "heap")
-        elif addr < self._heap:  # shrink: release the freed tail so the pages
-            self.unmap(addr, self._heap - addr)  # and the region table don't go stale (unmap carves)
+        mapped_end = self._layout.page_align_up(addr)
+        if mapped_end > self._heap_mapped_end:
+            self.map(self._heap_mapped_end, mapped_end - self._heap_mapped_end, RW, "heap")
+        elif mapped_end < self._heap_mapped_end:
+            self.unmap(mapped_end, self._heap_mapped_end - mapped_end)
+        self._heap_mapped_end = mapped_end
         self._heap = addr
         return self._heap
 
@@ -151,6 +182,8 @@ class MemoryManager:
         def push(data: bytes, align: int = 1) -> int:
             nonlocal top
             top = (top - len(data)) & ~(align - 1)
+            if top < bottom:
+                raise EmulatorCrashed(f"initial stack data exceeds STACK_SIZE {self._layout.STACK_SIZE:#x}")
             self.write(top, data)
             return top
 
@@ -171,6 +204,8 @@ class MemoryManager:
         pointer_size = self._arch.pointer_size
         write_word = self.write_u64 if pointer_size == 8 else self.write_u32
         sp = (top - len(words) * pointer_size) & ~0xF
+        if sp < bottom:
+            raise EmulatorCrashed(f"initial stack table exceeds STACK_SIZE {self._layout.STACK_SIZE:#x}")
         for index, value in enumerate(words):
             write_word(sp + index * pointer_size, value)
         self.argc = len(argv)
@@ -198,14 +233,14 @@ class MemoryManager:
     def get_errno(self) -> int:
         return self.read_u32(self._errno_addr) if self._errno_addr else 0
 
-    def ptr(self, address: int) -> "NativePointer":
+    def ptr(self, address: int) -> NativePointer:
         return NativePointer(self, address)
 
     def read(self, address: int, size: int) -> bytes:
         return self._be.mem_read(address, size)
 
-    def write(self, address: int, data: bytes) -> None:
-        self._be.mem_write(address, data)
+    def write(self, address: int, data: bytes | bytearray | memoryview) -> None:
+        self._be.mem_write(address, bytes(data))
 
     def read_u32(self, address: int) -> int:
         return struct.unpack("<I", self.read(address, 4))[0]
@@ -273,7 +308,7 @@ class MemoryManager:
     def write_double(self, address: int, value: float) -> None:
         self.write(address, struct.pack("<d", value))
 
-    def alloc(self, data: bytes, label: str = "alloc") -> int:
+    def alloc(self, data: bytes | bytearray | memoryview, label: str = "alloc") -> int:
         addr = self.mmap(max(len(data), 1), label=label)
         self.write(addr, data)
         return addr
@@ -281,31 +316,38 @@ class MemoryManager:
     def alloc_cstr(self, text: str) -> int:
         return self.alloc(text.encode("utf-8") + b"\x00", label="cstr")
 
-    def read_cstr(self, address: int, limit: int = NativePointer.CSTR_SCAN_LIMIT) -> str:
-        return self.read_cbytes(address, limit).decode("utf-8", "replace")
+    def read_cstr(self, address: int) -> str:
+        return self.read_cstr_bytes(address).decode("utf-8", "replace")
 
-    def read_cbytes(self, address: int, limit: int = NativePointer.CSTR_SCAN_LIMIT) -> bytes:
-        return self._scan_cstr(address, limit, safe=False)
-
-    def read_cstr_safe(self, address: int, limit: int = NativePointer.CSTR_SCAN_LIMIT) -> str:
-        return self._scan_cstr(address, limit, safe=True).decode("utf-8", "replace")
-
-    def _scan_cstr(self, address: int, limit: int, safe: bool) -> bytes:
+    def read_cstr_bytes(self, address: int) -> bytes:
+        max_length = 0x10000
         out = bytearray()
-        while len(out) < limit:
+        while len(out) < max_length:
+            current = address + len(out)
+            chunk_size = min(self._layout.PAGE_SIZE - current % self._layout.PAGE_SIZE, max_length - len(out))
             try:
-                chunk = self.read(address + len(out), 32)
+                chunk = self.read(current, chunk_size)
             except EmulatorCrashed:
-                if not safe:
-                    raise
                 break
             nul = chunk.find(b"\x00")
             if nul != -1:
-                return bytes(out + chunk[:nul])
+                out += chunk[:nul]
+                break
             out += chunk
-        if safe:
-            return bytes(out)
-        raise EmulatorCrashed(f"read_cbytes: no NUL terminator within {limit:#x} bytes at {address:#x} (bad pointer or non-string data)")
+        return bytes(out)
 
     def write_cstr(self, address: int, text: str) -> None:
         self.write(address, text.encode("utf-8") + b"\x00")
+
+    def _validate_address(self, address: int) -> None:
+        if address < 0 or address >= 1 << (self._arch.pointer_size * 8):
+            raise ValueError(f"address is outside the {self._arch.pointer_size * 8}-bit guest address space: {address:#x}")
+
+    def _validated_size(self, size: int, operation: str) -> int:
+        if size <= 0:
+            raise ValueError(f"{operation} size must be positive: {size}")
+        return self._layout.page_align_up(size)
+
+    def _validate_range(self, address: int, size: int, operation: str) -> None:
+        if address + size > 1 << (self._arch.pointer_size * 8):
+            raise ValueError(f"{operation} range exceeds the {self._arch.pointer_size * 8}-bit guest address space: {address:#x}+{size:#x}")

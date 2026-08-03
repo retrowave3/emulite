@@ -1,9 +1,11 @@
-from enum import IntEnum
+from enum import Enum, auto
 
 
-class HookType(IntEnum):
-    INTR = 1  # software interrupt (an ``svc`` trapped)
-    CODE = 2  # per-instruction / ranged code hook
-    MEM_READ = 3  # a guest load (address + size)
-    MEM_WRITE = 4  # a guest store (address + size + value)
-    MEM_FAULT = 5  # an access to unmapped memory (callback returns True to recover)
+class HookType(Enum):
+    """Backend event categories understood by the hook bridge."""
+
+    INTR = auto()  # software interrupt (an ``svc`` trapped)
+    CODE = auto()  # per-instruction / ranged code hook
+    MEM_READ = auto()  # a guest load (address + size)
+    MEM_WRITE = auto()  # a guest store (address + size + value)
+    MEM_FAULT = auto()  # an access to unmapped memory

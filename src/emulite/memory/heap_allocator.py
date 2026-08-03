@@ -5,6 +5,8 @@ from emulite.memory.memory_manager import MemoryManager
 
 
 class HeapAllocator:
+    """A small, deterministic allocator for guest-visible native memory."""
+
     _ARENA_SIZE = 0x0400_0000
     _ALIGN = 16
 
@@ -12,7 +14,7 @@ class HeapAllocator:
     def _round_up(value: int, alignment: int) -> int:
         return (value + alignment - 1) & ~(alignment - 1)
 
-    def __init__(self, mem: MemoryManager):
+    def __init__(self, mem: MemoryManager) -> None:
         self._mem = mem
         self._base = mem.mmap(self._ARENA_SIZE, RW, "malloc-arena")
         self._cursor = self._base
@@ -24,6 +26,8 @@ class HeapAllocator:
         return addr != 0 and not (self._base <= addr < self._end)
 
     def malloc(self, size: int) -> int:
+        if size < 0:
+            raise ValueError(f"malloc size cannot be negative: {size}")
         if size == 0:
             return 0
         need = self._round_up(size, self._ALIGN)
@@ -36,7 +40,7 @@ class HeapAllocator:
         self._sizes[addr] = size
         return addr
 
-    def _take_free(self, need: int) -> "int | None":
+    def _take_free(self, need: int) -> int | None:
         for addr in sorted(self._free):
             block = self._free[addr]
             if block >= need:
@@ -47,6 +51,8 @@ class HeapAllocator:
         return None
 
     def calloc(self, count: int, size: int) -> int:
+        if count < 0 or size < 0:
+            raise ValueError(f"calloc count and size cannot be negative: count={count}, size={size}")
         total = count * size
         if total > (1 << (self._mem.arch.pointer_size * 8)) - 1:
             return 0
@@ -56,14 +62,16 @@ class HeapAllocator:
         return addr
 
     def realloc(self, addr: int, size: int) -> int:
+        if size < 0:
+            raise ValueError(f"realloc size cannot be negative: {size}")
         if addr == 0:
             return self.malloc(size)
-        if self._is_foreign(addr):
-            raise ValueError(f"realloc of foreign pointer {addr:#x} (not from our arena)")
+        if addr not in self._sizes:
+            raise ValueError(f"realloc requires a live allocation start, got {addr:#x}")
         if size == 0:
             self.free(addr)
             return 0
-        old_size = self._sizes.get(addr, 0)
+        old_size = self._sizes[addr]
         new_addr = self.malloc(size)
         if new_addr and old_size:
             self._mem.write(new_addr, self._mem.read(addr, min(old_size, size)))
@@ -72,9 +80,13 @@ class HeapAllocator:
         return new_addr
 
     def free(self, addr: int) -> None:
-        size = self._sizes.pop(addr, None)
-        if size is not None:
-            self._insert_free(addr, self._round_up(size, self._ALIGN))
+        if addr == 0:
+            return
+        try:
+            size = self._sizes.pop(addr)
+        except KeyError:
+            raise ValueError(f"free requires a live allocation start, got {addr:#x}") from None
+        self._insert_free(addr, self._round_up(size, self._ALIGN))
 
     def _insert_free(self, addr: int, size: int) -> None:
         if addr + size in self._free:
@@ -86,6 +98,12 @@ class HeapAllocator:
                 break
         if addr + size == self._cursor:
             self._cursor = addr
+            while True:
+                previous = next((base for base, block_size in self._free.items() if base + block_size == self._cursor), None)
+                if previous is None:
+                    break
+                self._cursor = previous
+                del self._free[previous]
         else:
             self._free[addr] = size
 
@@ -98,6 +116,10 @@ class HeapAllocator:
     def memalign(self, alignment: int, size: int) -> int:
         if alignment < 1 or (alignment & (alignment - 1)):
             raise ValueError(f"memalign: alignment {alignment} is not a power of two")
+        if size < 0:
+            raise ValueError(f"memalign size cannot be negative: {size}")
+        if size == 0:
+            return 0
         alignment = max(alignment, self._ALIGN)
         need = self._round_up(size, self._ALIGN)
         start = self._round_up(self._cursor, alignment)

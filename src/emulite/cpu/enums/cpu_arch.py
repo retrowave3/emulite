@@ -1,6 +1,8 @@
-from enum import IntEnum
+from enum import Enum, auto
 
 
-class CpuArch(IntEnum):
-    ARM = 0  # 32-bit ARM (AArch32)
-    ARM64 = 1  # 64-bit ARM (AArch64)
+class CpuArch(Enum):
+    """Instruction-set architecture executed by a CPU backend."""
+
+    ARM = auto()  # 32-bit ARM (AArch32)
+    ARM64 = auto()  # 64-bit ARM (AArch64)

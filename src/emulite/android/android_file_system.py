@@ -5,7 +5,8 @@ import os
 import posixpath
 import struct
 import zlib
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, ClassVar
 
 from emulite.android.enums.auxv import Auxv
 from emulite.android.enums.errno import Errno
@@ -22,7 +23,11 @@ from emulite.android.io.tty_io import TtyIO
 from emulite.common.log import LogLevel
 from emulite.cpu.backend import CpuArch, MemoryProtectionFlag
 from emulite.filesystem.enums.dirent_type import DirentType
+from emulite.filesystem.enums.fcntl_cmd import FcntlCmd
+from emulite.filesystem.enums.seek_whence import SeekWhence
+from emulite.filesystem.file_descriptor import FileDescriptor
 from emulite.filesystem.file_io import FileIO
+from emulite.filesystem.flags.fd_flag import FdFlag
 from emulite.filesystem.flags.open_flag import OpenFlag
 from emulite.filesystem.structs.file_stat import FileStat
 from emulite.filesystem.structs.stat_result import StatResult
@@ -34,20 +39,22 @@ if TYPE_CHECKING:
 
 
 class AndroidFileSystem:
-    _REG_MODE, _CHR_MODE, _DIR_MODE = FileStat.REG_MODE, FileStat.CHR_MODE, FileStat.DIR_MODE
-    _DEV_RDEV = {"urandom": 265, "random": 264, "null": 259, "zero": 261, "ashmem": 2615, "binder": 2616, "tty": 1280}
-    _KNOWN_DIRS = ("/proc", "/proc/self", "/proc/self/fd", "/proc/self/task", "/proc/net", "/dev")
-    _DIR_INO = {"fd": 100000, "dev": 200000, "self": 300000, "task": 310000, "proc": 400000, "net": 500000, "host": 600000}
-    _ANON_NAMES = {"malloc-arena": "[anon:libc_malloc]", "tls": "[anon:bionic_tls]", "heap": "[heap]", "art-methods": "[anon:dalvik-LinearAlloc]"}
-    _DEV_BACKED = {"properties": ("/dev/__properties__/u:object_r:default_prop:s0", "00:0d", 1596)}
-    _HIDDEN_REGIONS = frozenset({"trampolines", "JNIEnv", "JavaVM", "dl_phdr_info", "r_debug", "link_map", "main-exe", "linker64", "linker"})
-    _ANON_FD_LINK = {"<eventfd>": "anon_inode:[eventfd]", "<epoll>": "anon_inode:[eventpoll]", "<stdin>": "/dev/null", "<stdout>": "/dev/null", "<stderr>": "/dev/null"}
+    """Android-oriented virtual filesystem and guest descriptor table."""
 
-    def __init__(self, rootfs: str | None, emu: "AndroidEmulatorBase"):
+    _REG_MODE, _CHR_MODE, _DIR_MODE = FileStat.REG_MODE, FileStat.CHR_MODE, FileStat.DIR_MODE
+    _DEV_RDEV: ClassVar[dict[str, int]] = {"urandom": 265, "random": 264, "null": 259, "zero": 261, "ashmem": 2615, "binder": 2616, "tty": 1280}
+    _KNOWN_DIRS: ClassVar[tuple[str, ...]] = ("/proc", "/proc/self", "/proc/self/fd", "/proc/self/task", "/proc/net", "/dev")
+    _DIR_INO: ClassVar[dict[str, int]] = {"fd": 100000, "dev": 200000, "self": 300000, "task": 310000, "proc": 400000, "net": 500000, "host": 600000}
+    _ANON_NAMES: ClassVar[dict[str, str]] = {"malloc-arena": "[anon:libc_malloc]", "tls": "[anon:bionic_tls]", "heap": "[heap]", "art-methods": "[anon:dalvik-LinearAlloc]"}
+    _DEV_BACKED: ClassVar[dict[str, tuple[str, str, int]]] = {"properties": ("/dev/__properties__/u:object_r:default_prop:s0", "00:0d", 1596)}
+    _HIDDEN_REGIONS: ClassVar[frozenset[str]] = frozenset({"trampolines", "JNIEnv", "JavaVM", "dl_phdr_info", "r_debug", "link_map", "main-exe", "linker64", "linker"})
+    _ANON_FD_LINK: ClassVar[dict[str, str]] = {"<eventfd>": "anon_inode:[eventfd]", "<epoll>": "anon_inode:[eventpoll]", "<stdin>": "/dev/null", "<stdout>": "/dev/null", "<stderr>": "/dev/null"}
+
+    def __init__(self, rootfs: str | None, emu: AndroidEmulatorBase):
         self._rootfs = os.path.realpath(rootfs) if rootfs else None
         self._emu = emu
         self._log = emu.log
-        self._fds: dict[int, FileIO] = {0: StdioIO(0), 1: StdioIO(1), 2: StdioIO(2)}
+        self._fds: dict[int, FileDescriptor] = {fd: FileDescriptor(StdioIO(fd)) for fd in range(3)}
         self._overlay: dict[str, bytearray] = {}
         self._made_dirs: set[str] = self._app_directories()
         self._deleted: set[str] = set()
@@ -98,30 +105,35 @@ class AndroidFileSystem:
 
     def open(self, path: str, flags: int) -> int:
         norm = self._canonical(self._normalize(path))
-        writable = (flags & (OpenFlag.O_WRONLY | OpenFlag.O_RDWR)) != 0 or (flags & OpenFlag.O_CREAT) != 0
-        append = bool(flags & OpenFlag.O_APPEND)
-        if flags & OpenFlag.O_CREAT:
+        open_flags = OpenFlag(flags)
+        access = open_flags & OpenFlag.O_ACCMODE
+        writable = access in (OpenFlag.O_WRONLY, OpenFlag.O_RDWR)
+        exists = self.exists(norm)
+        if open_flags & OpenFlag.O_CREAT and open_flags & OpenFlag.O_EXCL and exists:
+            return -Errno.EEXIST
+        if open_flags & OpenFlag.O_CREAT:
             self._deleted.discard(norm)
-        if (flags & OpenFlag.O_DIRECTORY) or self._is_dir(norm):
-            return self._open_directory(norm)
-        handle = self._make_handle(norm, flags, writable, append)
+        if (open_flags & OpenFlag.O_DIRECTORY) or self._is_dir(norm):
+            return self._open_directory(norm, FdFlag.FD_CLOEXEC if open_flags & OpenFlag.O_CLOEXEC else FdFlag.NONE)
+        handle = self._make_handle(norm, open_flags, writable, bool(open_flags & OpenFlag.O_APPEND))
         if isinstance(handle, int):
             return handle
-        if flags & OpenFlag.O_TRUNC and isinstance(handle, RegularFileIO):
+        handle.oflags = OpenFlag(open_flags & ~(OpenFlag.O_CREAT | OpenFlag.O_EXCL | OpenFlag.O_NOCTTY | OpenFlag.O_TRUNC | OpenFlag.O_CLOEXEC))
+        if writable and open_flags & OpenFlag.O_TRUNC and isinstance(handle, RegularFileIO):
             handle.ftruncate(0)
-        fd = self._install(handle)
+        fd = self._install(handle, FdFlag.FD_CLOEXEC if open_flags & OpenFlag.O_CLOEXEC else FdFlag.NONE)
         self._log.vfs("open(%r, flags=%#x) => fd %d", norm, flags, fd)
         return fd
 
-    def _open_directory(self, norm: str) -> int:
+    def _open_directory(self, norm: str, flags: FdFlag = FdFlag.NONE) -> int:
         if not self._is_dir(norm):
             exists = norm in self._providers or norm in self._overlay or self._host_path(norm)
             return -Errno.ENOTDIR if exists else -Errno.ENOENT
-        fd = self._install(DirectoryIO(norm))
+        fd = self._install(DirectoryIO(norm), flags)
         self._log.vfs("opendir(%r) => fd %d", norm, fd)
         return fd
 
-    def _make_handle(self, norm: str, flags: int, writable: bool, append: bool) -> "FileIO | int":
+    def _make_handle(self, norm: str, flags: OpenFlag, writable: bool, append: bool) -> FileIO | int:
         if norm in self._devices:
             kind = self._devices[norm]
             return AshmemIO() if kind == "ashmem" else TtyIO(norm) if kind == "tty" else DeviceIO(norm, kind, self._DEV_RDEV[kind])
@@ -135,47 +147,58 @@ class AndroidFileSystem:
         if host is not None:
             return RegularFileIO(norm, bytearray(self._read_host(host)), writable=False)
         if flags & OpenFlag.O_CREAT:
-            return RegularFileIO(norm, self._overlay.setdefault(norm, bytearray()), True, flags, append)
+            return RegularFileIO(norm, self._overlay.setdefault(norm, bytearray()), writable, flags, append)
         self._log.vfs("open(%r) => -ENOENT", norm, level=LogLevel.WARN)
         return -Errno.ENOENT
 
     def close(self, fd: int) -> int:
-        handle = self._fds.pop(fd, None)
-        if handle is None:
+        descriptor = self._fds.pop(fd, None)
+        if descriptor is None:
             return -Errno.EBADF
-        handle.close()
+        if all(other.handle is not descriptor.handle for other in self._fds.values()):
+            descriptor.handle.close()
         self._log.vfs("close(%d) => 0", fd)
         return 0
 
-    def _install(self, handle: FileIO) -> int:
+    def _install(self, handle: FileIO, flags: FdFlag = FdFlag.NONE) -> int:
         fd = next(i for i in itertools.count(3) if i not in self._fds)
-        self._fds[fd] = handle
+        self._fds[fd] = FileDescriptor(handle, flags)
         return fd
 
     def socket(self, domain: int, sock_type: int, protocol: int) -> int:
         if domain != 1:
             return -Errno.EAFNOSUPPORT
-        return self._install(SocketIO(domain, sock_type & 0xF, protocol))
+        handle = SocketIO(domain, sock_type & 0xF, protocol)
+        if sock_type & OpenFlag.O_NONBLOCK:
+            handle.oflags |= OpenFlag.O_NONBLOCK
+        return self._install(handle, FdFlag.FD_CLOEXEC if sock_type & OpenFlag.O_CLOEXEC else FdFlag.NONE)
 
-    def socketpair(self, domain: int, sock_type: int, protocol: int) -> "tuple[int, int] | int":
+    def socketpair(self, domain: int, sock_type: int, protocol: int) -> tuple[int, int] | int:
         if domain != 1:
             return -Errno.EAFNOSUPPORT
         left, right = (SocketIO(domain, sock_type & 0xF, protocol) for _ in range(2))
+        if sock_type & OpenFlag.O_NONBLOCK:
+            left.oflags |= OpenFlag.O_NONBLOCK
+            right.oflags |= OpenFlag.O_NONBLOCK
         left.peer, right.peer = right, left
-        return self._install(left), self._install(right)
+        fd_flags = FdFlag.FD_CLOEXEC if sock_type & OpenFlag.O_CLOEXEC else FdFlag.NONE
+        return self._install(left, fd_flags), self._install(right, fd_flags)
 
-    def pipe(self) -> tuple[int, int]:
+    def pipe(self, flags: int = 0) -> tuple[int, int]:
         fifo = bytearray()
-        return self._install(PipeIO(fifo, readable=True)), self._install(PipeIO(fifo, readable=False))
+        nonblocking = bool(flags & OpenFlag.O_NONBLOCK)
+        fd_flags = FdFlag.FD_CLOEXEC if flags & OpenFlag.O_CLOEXEC else FdFlag.NONE
+        return self._install(PipeIO(fifo, readable=True, nonblocking=nonblocking), fd_flags), self._install(PipeIO(fifo, readable=False, nonblocking=nonblocking), fd_flags)
 
-    def eventfd(self, initval: int, semaphore: bool) -> int:
-        return self._install(EventFdIO(initval, semaphore))
+    def eventfd(self, initval: int, *, semaphore: bool = False, nonblocking: bool = False, close_on_exec: bool = False) -> int:
+        handle = EventFdIO(initval, semaphore=semaphore, nonblocking=nonblocking)
+        return self._install(handle, FdFlag.FD_CLOEXEC if close_on_exec else FdFlag.NONE)
 
-    def epoll_create(self) -> int:
-        return self._install(EpollIO(self))
+    def epoll_create(self, flags: int = 0) -> int:
+        return self._install(EpollIO(self), FdFlag.FD_CLOEXEC if flags & OpenFlag.O_CLOEXEC else FdFlag.NONE)
 
     def epoll_ctl(self, epfd: int, op: int, fd: int, events: int, data: int) -> int:
-        ep = self._fds.get(epfd)
+        ep = self.handle(epfd)
         if not isinstance(ep, EpollIO):
             return -Errno.EBADF
         if op == 2:  # EPOLL_CTL_DEL
@@ -184,18 +207,19 @@ class AndroidFileSystem:
             ep.watched[fd] = (events, data)
         return 0
 
-    def epoll_wait(self, epfd: int, maxevents: int) -> "list[tuple[int, int, int]] | None":
-        ep = self._fds.get(epfd)
+    def epoll_wait(self, epfd: int, maxevents: int) -> list[tuple[int, int, int]] | None:
+        ep = self.handle(epfd)
         if not isinstance(ep, EpollIO):
             return None
         return ep.ready()[:maxevents]
 
-    def handle(self, fd: int) -> "FileIO | None":
-        return self._fds.get(fd)
+    def handle(self, fd: int) -> FileIO | None:
+        descriptor = self._fds.get(fd)
+        return descriptor.handle if descriptor is not None else None
 
     def ioctl(self, fd: int, request: int, argp: int) -> int:
-        handle = self._fds.get(fd)
-        return handle.ioctl(request, argp, self) if handle is not None else -Errno.EBADF
+        handle = self.handle(fd)
+        return handle.ioctl(request, argp, self._emu) if handle is not None else -Errno.EBADF
 
     def unlink(self, path: str) -> int:
         norm = self._normalize(path)
@@ -222,11 +246,11 @@ class AndroidFileSystem:
         self._log.vfs("rename(%r -> %r) => 0", old, new)
         return 0
 
-    def register_socket(self, path: str, handler: "Callable[[bytes], bytes]") -> None:
+    def register_socket(self, path: str, handler: Callable[[bytes], bytes]) -> None:
         self._socket_handlers[path] = handler
 
     def connect(self, fd: int, path: str) -> int:
-        handle = self._fds.get(fd)
+        handle = self.handle(fd)
         if not isinstance(handle, SocketIO):
             return -Errno.ENOTSOCK
         handler = self._socket_handlers.get(path)
@@ -242,45 +266,72 @@ class AndroidFileSystem:
     def _is_known_socket(path: str) -> bool:
         return path.startswith("/dev/socket/")
 
-    def socket_handle(self, fd: int) -> "SocketIO | None":
-        handle = self._fds.get(fd)
+    def socket_handle(self, fd: int) -> SocketIO | None:
+        handle = self.handle(fd)
         return handle if isinstance(handle, SocketIO) else None
 
     def close_range(self, first: int, last: int) -> int:
         targets = [fd for fd in self._fds if first <= fd <= last]
         for fd in targets:
-            del self._fds[fd]
+            self.close(fd)
         return len(targets)
 
     def dup(self, fd: int, min_fd: int = 3) -> int:
-        handle = self._fds.get(fd)
-        if handle is None:
+        descriptor = self._fds.get(fd)
+        if descriptor is None:
             return -Errno.EBADF
         new_fd = next(i for i in itertools.count(min_fd) if i not in self._fds)
-        self._fds[new_fd] = handle
+        self._fds[new_fd] = FileDescriptor(descriptor.handle)
         return new_fd
 
-    def dup_to(self, oldfd: int, newfd: int) -> int:
-        handle = self._fds.get(oldfd)
-        if handle is None:
+    def dup_to(self, oldfd: int, newfd: int, *, close_on_exec: bool = False) -> int:
+        descriptor = self._fds.get(oldfd)
+        if descriptor is None:
             return -Errno.EBADF
-        self._fds[newfd] = handle
+        if oldfd == newfd:
+            return newfd
+        self.close(newfd)
+        flags = FdFlag.FD_CLOEXEC if close_on_exec else FdFlag.NONE
+        self._fds[newfd] = FileDescriptor(descriptor.handle, flags)
         return newfd
 
-    def pread(self, fd: int, count: int, offset: int) -> "bytes | int | None":
-        handle = self._fds.get(fd)
-        return handle.pread(offset, count) if handle is not None else None
+    def fcntl(self, fd: int, cmd: int, arg: int) -> int:
+        descriptor = self._fds.get(fd)
+        if descriptor is None:
+            return -Errno.EBADF
+        try:
+            command = FcntlCmd(cmd)
+        except ValueError:
+            return -Errno.EINVAL
+        if command in (FcntlCmd.F_DUPFD, FcntlCmd.F_DUPFD_CLOEXEC):
+            result = self.dup(fd, min_fd=arg)
+            if result >= 0 and command is FcntlCmd.F_DUPFD_CLOEXEC:
+                self._fds[result].flags = FdFlag.FD_CLOEXEC
+            return result
+        if command is FcntlCmd.F_GETFD:
+            return int(descriptor.flags)
+        if command is FcntlCmd.F_SETFD:
+            descriptor.flags = FdFlag(arg & FdFlag.FD_CLOEXEC)
+            return 0
+        return descriptor.handle.fcntl(command, arg)
 
-    def pwrite(self, fd: int, data: bytes, offset: int) -> int | None:
-        handle = self._fds.get(fd)
-        if handle is None:
-            return None
-        result = handle.pwrite(offset, data)
-        return result if result >= 0 else None
+    def pread(self, fd: int, count: int, offset: int) -> bytes | int:
+        handle = self.handle(fd)
+        if handle is None or handle.oflags & OpenFlag.O_ACCMODE == OpenFlag.O_WRONLY:
+            return -Errno.EBADF
+        return handle.pread(offset, count)
+
+    def pwrite(self, fd: int, data: bytes, offset: int) -> int:
+        handle = self.handle(fd)
+        if handle is None or handle.oflags & OpenFlag.O_ACCMODE == OpenFlag.O_RDONLY:
+            return -Errno.EBADF
+        return handle.pwrite(offset, data)
 
     def ftruncate(self, fd: int, length: int) -> int:
-        handle = self._fds.get(fd)
-        return handle.ftruncate(length) if handle is not None else -Errno.EBADF
+        handle = self.handle(fd)
+        if handle is None or handle.oflags & OpenFlag.O_ACCMODE == OpenFlag.O_RDONLY:
+            return -Errno.EBADF
+        return handle.ftruncate(length)
 
     def truncate(self, path: str, length: int) -> int:
         if length < 0:
@@ -292,17 +343,29 @@ class AndroidFileSystem:
         self.close(fd)
         return result
 
-    def read(self, fd: int, count: int) -> "bytes | int | None":
-        handle = self._fds.get(fd)
-        return handle.read(count) if handle else None
+    def read(self, fd: int, count: int) -> bytes | int:
+        handle = self.handle(fd)
+        if handle is None:
+            return -Errno.EBADF
+        if handle.oflags & OpenFlag.O_ACCMODE == OpenFlag.O_WRONLY:
+            return -Errno.EBADF
+        return handle.read(count)
 
     def write(self, fd: int, data: bytes) -> int:
-        handle = self._fds.get(fd)
-        return handle.write(data) if handle is not None else -Errno.EBADF
+        handle = self.handle(fd)
+        if handle is None or handle.oflags & OpenFlag.O_ACCMODE == OpenFlag.O_RDONLY:
+            return -Errno.EBADF
+        return handle.write(data)
 
     def seek(self, fd: int, offset: int, whence: int) -> int:
-        handle = self._fds.get(fd)
-        return handle.lseek(offset, whence) if handle else -Errno.EBADF
+        handle = self.handle(fd)
+        if handle is None:
+            return -Errno.EBADF
+        try:
+            origin = SeekWhence(whence)
+        except ValueError:
+            return -Errno.EINVAL
+        return handle.lseek(offset, origin)
 
     def _canonical(self, norm: str) -> str:
         profile = self._emu.profile
@@ -329,35 +392,35 @@ class AndroidFileSystem:
         self._made_dirs.add(norm)
         return 0
 
-    def _dir_entries(self, norm: str) -> "list[tuple[int, int, str]] | None":
+    def _dir_entries(self, norm: str) -> list[tuple[int, DirentType, str]] | None:
         norm = self._canonical(norm)
-        ino = self._DIR_INO
+        inode_bases = self._DIR_INO
         dot = [(1, DirentType.DT_DIR, "."), (2, DirentType.DT_DIR, "..")]
         if norm == "/proc/self/fd":
-            return dot + [(ino["fd"] + fd, DirentType.DT_LNK, str(fd)) for fd in sorted(self._fds)]
+            return dot + [(inode_bases["fd"] + fd, DirentType.DT_LNK, str(fd)) for fd in sorted(self._fds)]
         if norm == "/proc/self/task":
-            return dot + [(ino["task"], DirentType.DT_DIR, str(self._emu.profile.process_tid))]
+            return dot + [(inode_bases["task"], DirentType.DT_DIR, str(self._emu.profile.process_tid))]
         if norm == "/dev":
-            return dot + [(ino["dev"] + i, DirentType.DT_CHR, name[len("/dev/") :]) for i, name in enumerate(sorted(self._devices))]
+            return dot + [(inode_bases["dev"] + i, DirentType.DT_CHR, name[len("/dev/") :]) for i, name in enumerate(sorted(self._devices))]
         if norm == "/proc/self":
             names = sorted({p[len("/proc/self/") :].split("/")[0] for p in self._providers if p.startswith("/proc/self/")} | {"fd", "task"})
-            return dot + [(ino["self"] + i, DirentType.DT_DIR if self._is_dir(f"/proc/self/{n}") else DirentType.DT_REG, n) for i, n in enumerate(names)]
+            return dot + [(inode_bases["self"] + i, DirentType.DT_DIR if self._is_dir(f"/proc/self/{n}") else DirentType.DT_REG, n) for i, n in enumerate(names)]
         if norm == "/proc":
             top = sorted({p[len("/proc/") :].split("/")[0] for p in self._providers} | {"self", "net"})
-            return dot + [(ino["proc"] + i, DirentType.DT_DIR if self._is_dir(f"/proc/{n}") else DirentType.DT_REG, n) for i, n in enumerate(top)]
+            return dot + [(inode_bases["proc"] + i, DirentType.DT_DIR if self._is_dir(f"/proc/{n}") else DirentType.DT_REG, n) for i, n in enumerate(top)]
         if norm == "/proc/net":
-            return dot + [(ino["net"], DirentType.DT_REG, "tcp"), (ino["net"] + 1, DirentType.DT_REG, "tcp6")]
+            return dot + [(inode_bases["net"], DirentType.DT_REG, "tcp"), (inode_bases["net"] + 1, DirentType.DT_REG, "tcp6")]
         host = self._host_dir(norm)
         if host is None and not self._is_dir(norm):
             return None
-        entries, seen, ino = list(dot), {".", ".."}, ino["host"]
+        entries, seen, inode = list(dot), {".", ".."}, inode_bases["host"]
         if host is not None:
             for name in sorted(os.listdir(host)):
                 full = os.path.join(host, name)
                 dtype = DirentType.DT_DIR if os.path.isdir(full) else (DirentType.DT_LNK if os.path.islink(full) else DirentType.DT_REG)
-                entries.append((ino, dtype, name))
+                entries.append((inode, dtype, name))
                 seen.add(name)
-                ino += 1
+                inode += 1
         prefix = norm.rstrip("/") + "/"
         virtual_paths = set(self._providers) | set(self._overlay) | self._made_dirs | set(self._devices) | set(self._symlinks)
         for path in sorted(virtual_paths):
@@ -376,13 +439,13 @@ class AndroidFileSystem:
                 dtype = DirentType.DT_CHR
             else:
                 dtype = DirentType.DT_REG
-            entries.append((ino, dtype, name))
+            entries.append((inode, dtype, name))
             seen.add(name)
-            ino += 1
+            inode += 1
         return entries
 
-    def getdents(self, fd: int) -> "list[tuple[int, int, str]] | None":
-        handle = self._fds.get(fd)
+    def getdents(self, fd: int) -> list[tuple[int, DirentType, str]] | None:
+        handle = self.handle(fd)
         if not isinstance(handle, DirectoryIO):
             return None
         if handle.entries is None:
@@ -390,12 +453,12 @@ class AndroidFileSystem:
         return handle.entries[handle.index :]
 
     def advance_dir(self, fd: int, count: int) -> None:
-        handle = self._fds.get(fd)
+        handle = self.handle(fd)
         if isinstance(handle, DirectoryIO):
             handle.index += count
 
-    def fstat(self, fd: int) -> "StatResult | None":
-        handle = self._fds.get(fd)
+    def fstat(self, fd: int) -> StatResult | None:
+        handle = self.handle(fd)
         if handle is None:
             return None
         stat = handle.fstat()
@@ -406,12 +469,12 @@ class AndroidFileSystem:
             uid, gid, ino = (self._emu.profile.process_uid, self._emu.profile.process_gid, self._anon_inode(handle))
         return StatResult(stat.mode, stat.size, stat.rdev, uid, gid, ino)
 
-    def stat_path(self, path: str) -> "StatResult | None":
+    def stat_path(self, path: str) -> StatResult | None:
         norm = self._canonical(self._normalize(path))
         base = self._stat_base(norm)
         return StatResult(*base, *self._path_identity(norm)) if base is not None else None
 
-    def _stat_base(self, norm: str) -> "tuple[int, int, int] | None":
+    def _stat_base(self, norm: str) -> tuple[int, int, int] | None:
         if norm in self._devices:
             return (self._CHR_MODE, 0, self._DEV_RDEV.get(self._devices[norm], 0))
         if norm in self._overlay:
@@ -423,7 +486,7 @@ class AndroidFileSystem:
         host = self._host_path(norm)
         return (self._REG_MODE, os.path.getsize(host), 0) if host else None
 
-    def _path_identity(self, norm: str) -> "tuple[int, int, int]":
+    def _path_identity(self, norm: str) -> tuple[int, int, int]:
         uid = self._emu.profile.process_uid if self._is_app_path(norm) else 0
         gid = self._emu.profile.process_gid if uid else 0
         return (uid, gid, (zlib.crc32(norm.encode()) & 0x00FFFFFF) | 0x0C000000)
@@ -431,18 +494,21 @@ class AndroidFileSystem:
     def _is_app_path(self, norm: str) -> bool:
         return any(norm == root or norm.startswith(root + "/") for root in self._app_roots())
 
-    def _app_roots(self) -> "tuple[str, ...]":
+    def _app_roots(self) -> tuple[str, ...]:
         p = self._emu.profile
         return tuple(r for r in (p.data_dir, f"/data/data/{p.package_name}", f"/data/app/{p.package_name}", p.external_files_dir) if r)
 
-    def _app_directories(self) -> "set[str]":
+    def _app_directories(self) -> set[str]:
         p = self._emu.profile
         dirs = {"/data", "/data/user", "/data/user/0", "/data/data", "/data/app", "/sdcard", "/sdcard/Android", "/sdcard/Android/data"}
         for base in (p.data_dir, f"/data/data/{p.package_name}"):
+            if not base:
+                continue
             dirs |= {base, f"{base}/files", f"{base}/cache", f"{base}/code_cache", f"{base}/shared_prefs", f"{base}/databases"}
         app_root = f"/data/app/{p.package_name}"
-        dirs |= {app_root, f"{app_root}/lib", p.native_lib_dir, p.external_files_dir}
-        return {self._normalize(d) for d in dirs if d}
+        dirs |= {app_root, f"{app_root}/lib"}
+        dirs.update(path for path in (p.native_lib_dir, p.external_files_dir) if path)
+        return {self._normalize(path) for path in dirs}
 
     def exists(self, path: str) -> bool:
         return self.stat_path(path) is not None or self._normalize(path) in self._symlinks
@@ -460,7 +526,7 @@ class AndroidFileSystem:
                 tail = norm[len(prefix) :]
                 if not (tail.isascii() and tail.isdigit()):
                     return None
-                handle = self._fds.get(int(tail))
+                handle = self.handle(int(tail))
                 if handle is None:
                     return None
                 path = getattr(handle, "path", None)
@@ -508,7 +574,7 @@ class AndroidFileSystem:
         with open(host, "rb") as handle:
             return handle.read()
 
-    def device_path(self, module: "NativeModule") -> str:
+    def device_path(self, module: NativeModule) -> str:
         host = module.path.replace("\\", "/")
         if self._rootfs:
             root = self._rootfs.replace("\\", "/")
@@ -522,10 +588,10 @@ class AndroidFileSystem:
     def _lib(self) -> str:
         return "lib64" if self._emu.arch.cpu_arch is CpuArch.ARM64 else "lib"
 
-    def _map_entries(self) -> "list[tuple[int, int, int, int, str, int, str]]":
+    def _map_entries(self) -> list[tuple[int, int, int, int, str, int, str]]:
         rw = MemoryProtectionFlag.READ | MemoryProtectionFlag.WRITE
         entries: list = []
-        for index, module in enumerate(self._emu.loader.modules.values()):
+        for index, module in enumerate(self._emu.loader.loaded_modules):
             inode = 200000 + index
             dev = "fd:03" if "/data/" in self.device_path(module) else "07:08"
             for start, size, perms in module.segments:
@@ -576,7 +642,7 @@ class AndroidFileSystem:
         return f"{start:08x}-{start + size:08x} {flags} {offset:08x} {dev} {inode:<11} {name}"
 
     def _mapped_kb(self) -> int:
-        total = sum(size for m in self._emu.loader.modules.values() for _, size, _ in m.segments)
+        total = sum(size for module in self._emu.loader.loaded_modules for _, size, _ in module.segments)
         return (total + MemoryLayout.STACK_SIZE + 0x200000) // 1024
 
     def _proc_status(self) -> bytes:
@@ -646,7 +712,7 @@ class AndroidFileSystem:
         return f"{up:.2f} {up * cpus * 0.9:.2f}\n".encode()
 
     def _proc_cmdline(self) -> bytes:
-        return (self._emu.profile.program_name + "\x00").encode()
+        return ((self._emu.profile.program_name or "") + "\x00").encode()
 
     def _proc_comm(self) -> bytes:
         return (self._emu.profile.thread_name[:15] + "\n").encode()
@@ -671,16 +737,16 @@ class AndroidFileSystem:
 
     def _proc_mounts(self) -> bytes:
         return (
-            "rootfs / rootfs ro,seclabel 0 0\n"
-            "/dev/block/dm-0 /system ext4 ro,seclabel,relatime 0 0\n"
-            "/dev/block/dm-1 /vendor ext4 ro,seclabel,relatime 0 0\n"
-            "/dev/block/by-name/userdata /data f2fs rw,seclabel,nosuid,nodev,noatime 0 0\n"
-            "tmpfs /dev tmpfs rw,seclabel,nosuid,relatime,mode=755 0 0\n"
-            "proc /proc proc rw,relatime,gid=3009,hidepid=2 0 0\n"
-        ).encode()
+            b"rootfs / rootfs ro,seclabel 0 0\n"
+            b"/dev/block/dm-0 /system ext4 ro,seclabel,relatime 0 0\n"
+            b"/dev/block/dm-1 /vendor ext4 ro,seclabel,relatime 0 0\n"
+            b"/dev/block/by-name/userdata /data f2fs rw,seclabel,nosuid,nodev,noatime 0 0\n"
+            b"tmpfs /dev tmpfs rw,seclabel,nosuid,relatime,mode=755 0 0\n"
+            b"proc /proc proc rw,relatime,gid=3009,hidepid=2 0 0\n"
+        )
 
     def _proc_net_tcp(self, _family: int) -> bytes:
-        return ("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid\n   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000\n").encode()
+        return (b"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid\n   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000\n")
 
     def _proc_cpuinfo(self) -> bytes:
         d = self._emu.device

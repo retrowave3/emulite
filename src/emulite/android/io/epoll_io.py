@@ -11,15 +11,15 @@ if TYPE_CHECKING:
 
 
 class EpollIO(FileIO):
-    def __init__(self, vfs: "AndroidFileSystem"):
+    def __init__(self, vfs: AndroidFileSystem):
         super().__init__("<epoll>", OpenFlag.O_RDONLY)
         self._vfs = vfs
         self.watched: dict[int, tuple[int, int]] = {}
 
-    def ready(self) -> "list[tuple[int, int, int]]":
+    def ready(self) -> list[tuple[int, int, int]]:
         out = []
         for fd, (events, data) in self.watched.items():
-            handle = self._vfs._fds.get(fd)
+            handle = self._vfs.handle(fd)
             if handle is not None and handle.can_read():
                 out.append((fd, events & 0x1 or 0x1, data))  # report EPOLLIN
         return out

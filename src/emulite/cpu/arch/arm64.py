@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from emulite.cpu.arch.architecture_memory import ArchitectureMemory
 from emulite.cpu.arch.base import Arch
 from emulite.cpu.backend import Backend, CpuArch
 from emulite.cpu.registers.arm64_reg import Arm64Reg
 from emulite.memory import MemoryLayout
+
+if TYPE_CHECKING:
+    from emulite.android_device import AndroidDevice
 
 
 class Arm64Arch(Arch):
@@ -23,9 +29,11 @@ class Arm64Arch(Arch):
     _MIDR_EL1 = (3, 0, 0, 0, 0)
 
     def encode_svc(self, imm: int) -> int:
+        if not 0 <= imm <= 0xFFFF:
+            raise ValueError(f"AArch64 svc immediate must fit in 16 bits: {imm}")
         return self._SVC_BASE | (imm << 5)
 
-    def trapped_svc(self, backend: Backend, mem: object, pc: int) -> int | None:
+    def trapped_svc(self, backend: Backend, mem: ArchitectureMemory, pc: int) -> int | None:
         instr = mem.read_u32(pc - 4)
         if (instr & self._SVC_MASK) != self._SVC_BASE:
             return None
@@ -38,10 +46,10 @@ class Arm64Arch(Arch):
     def enable_fpu(self, backend: Backend) -> None:
         backend.reg_write(Arm64Reg.CPACR_EL1, backend.reg_read(Arm64Reg.CPACR_EL1) | self._CPACR_FPEN)
 
-    def seed_system_registers(self, backend: Backend, device: object) -> None:
+    def seed_system_registers(self, backend: Backend, device: AndroidDevice) -> None:
         backend.write_sysreg(*self._MIDR_EL1, device.midr_el1())
 
-    def setup_tls(self, backend: Backend, mem: object, base: int, stack_guard: int, errno_addr: int) -> None:
+    def setup_tls(self, backend: Backend, mem: ArchitectureMemory, base: int, stack_guard: int, errno_addr: int) -> None:
         # bionic layout, 8-byte slots:
         mem.write_u64(base + 0 * 8, base)  # TLS_SLOT_SELF
         mem.write_u64(base + 1 * 8, base + 0x100)  # TLS_SLOT_THREAD_ID (pthread_internal*)

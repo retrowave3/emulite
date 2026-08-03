@@ -13,4 +13,4 @@ class StatType(IntEnum):
     S_IFSOCK = 0xC000  # socket
 
 
-StatType.S_IFMT = 0xF000  # st_mode file-type mask (a non-member: mode & StatType.S_IFMT == a StatType)
+STAT_TYPE_MASK = 0xF000

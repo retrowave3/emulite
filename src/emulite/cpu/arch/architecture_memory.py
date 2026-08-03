@@ -1,0 +1,13 @@
+from typing import Protocol
+
+
+class ArchitectureMemory(Protocol):
+    """Memory operations required by architecture-specific CPU setup."""
+
+    def read_u16(self, address: int) -> int: ...
+
+    def read_u32(self, address: int) -> int: ...
+
+    def write_u32(self, address: int, value: int) -> None: ...
+
+    def write_u64(self, address: int, value: int) -> None: ...

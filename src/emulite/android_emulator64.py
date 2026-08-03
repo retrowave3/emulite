@@ -84,7 +84,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
         self.trap = SvcTrap(self.backend, self.mem, self.log)
         self._setup_android(rootfs, strict_syscalls, syscall_handler, jni_env, java_vm)
 
-        self.loader = ElfLoader(self.backend, self.mem, self.log, rootfs=rootfs, search_paths=search_paths)
+        self.loader = ElfLoader(self.mem, self.log, rootfs=rootfs, search_paths=search_paths)
         self.loader.emu = self
         self.hooks = HookManager(self)
         self.disassembler = Disassembler(self)
@@ -122,7 +122,7 @@ class AndroidEmulator64(AndroidEmulatorBase):
         self.jni = jni_env(self)
         self.javavm = java_vm(self)
 
-    def load(self, path_or_name: str, scan_only: bool = False) -> NativeModule:
+    def load(self, path_or_name: str | os.PathLike[str], scan_only: bool = False) -> NativeModule:
         return self.loader.load(path_or_name, scan_only=scan_only)
 
     def call_jni_onload(self, module: NativeModule) -> int:
@@ -147,8 +147,8 @@ class AndroidEmulator64(AndroidEmulatorBase):
             raise SymbolMissing(name)
         return address
 
-    def call_symbol(self, name: str, *args: int, **kwargs: object):
-        return self.call(self.find_symbol_or_throw(name), *args, **kwargs)
+    def call_symbol(self, name: str, *args: object, return_pointer: bool = False) -> int | NativePointer:
+        return self.call(self.find_symbol_or_throw(name), *args, return_pointer=return_pointer)
 
     def get_module(self, name_or_path: str) -> NativeModule | None:
         return self.loader.modules.get(os.path.basename(name_or_path.replace("\\", "/")))
@@ -158,12 +158,12 @@ class AndroidEmulator64(AndroidEmulatorBase):
 
     @property
     def modules(self) -> list[NativeModule]:
-        return list(self.loader.modules.values())
+        return list(self.loader.loaded_modules)
 
     loaded_modules = modules
 
-    def add_library_path(self, path: str) -> None:
-        self.loader._search.append(path)
+    def add_library_path(self, path: str | os.PathLike[str]) -> None:
+        self.loader.add_search_path(path)
 
     def describe_address(self, address: int) -> str:
         module = self.module_at(address)

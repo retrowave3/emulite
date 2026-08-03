@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import struct
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from emulite.android_emulator import AndroidEmulatorBase
+from emulite.filesystem.types.ioctl_context import IoctlContext
 
 
 class BinderDriver:
@@ -30,21 +28,21 @@ class BinderDriver:
     _MAX_PARCEL = 4096  # cap on the transaction parcel we copy out of guest memory
     _REPLY_BUDGET = 0x60  # worst-case bytes a BR_TRANSACTION_COMPLETE + BR_REPLY occupies
 
-    def __init__(self, emu: "AndroidEmulatorBase") -> None:
-        self._emu = emu
+    def __init__(self, context: IoctlContext) -> None:
+        self._context = context
         self._replies: list[tuple[bytes, list[int]]] = []  # queued (reply_parcel, flat_object_offsets) FIFO
 
     def ioctl(self, request: int, arg: int) -> int:
         if request & 0xFF == self._VERSION_NR and arg:
-            self._emu.mem.write_u32(arg, self._PROTOCOL_VERSION)
+            self._context.mem.write_u32(arg, self._PROTOCOL_VERSION)
             return 0
         if request == self._BINDER_WRITE_READ and arg:
             return self._write_read(arg)
-        self._emu.log.vfs("binder: unhandled ioctl %#x", request)  # visible, not silently swallowed
+        self._context.log.vfs("binder: unhandled ioctl %#x", request)  # visible, not silently swallowed
         return 0
 
     def _write_read(self, arg: int) -> int:
-        mem = self._emu.mem
+        mem = self._context.mem
         wsize, wbuf = mem.read_u64(arg), mem.read_u64(arg + 16)
         rsize, rbuf = mem.read_u64(arg + 24), mem.read_u64(arg + 40)
         self._consume_write(wbuf, wsize)
@@ -57,7 +55,7 @@ class BinderDriver:
         return 0
 
     def _consume_write(self, wbuf: int, wsize: int) -> None:
-        mem = self._emu.mem
+        mem = self._context.mem
         p, end = wbuf, wbuf + wsize
         while p + 4 <= end:  # each command: u32 word + payload of (word>>16) bytes
             cmd = mem.read_u32(p)
@@ -66,7 +64,7 @@ class BinderDriver:
                 handle, code = mem.read_u32(body), mem.read_u32(body + 16)
                 dsize, dbuf = mem.read_u64(body + 32), mem.read_u64(body + 48)
                 if dsize > self._MAX_PARCEL:
-                    self._emu.log.vfs("binder: parcel of %d bytes truncated to %d", dsize, self._MAX_PARCEL)
+                    self._context.log.vfs("binder: parcel of %d bytes truncated to %d", dsize, self._MAX_PARCEL)
                 parcel = bytes(mem.read(dbuf, min(dsize, self._MAX_PARCEL))) if dbuf and dsize else b""
                 self._replies.append(self._service_reply(handle, code, parcel))
             p = body + ((cmd >> 16) & 0x3FFF)
@@ -82,7 +80,7 @@ class BinderDriver:
         return out
 
     def _transaction_data(self, data: bytes, offsets: list[int]) -> bytes:
-        mem = self._emu.mem
+        mem = self._context.mem
         buf = mem.mmap(max(len(data), 16))
         mem.write(buf, data)
         offb = 0
@@ -98,7 +96,7 @@ class BinderDriver:
             if "package" in service:  # PackageManager -> a real handle
                 fbo = struct.pack("<IIQQ", self._BINDER_TYPE_HANDLE, 0x7F, self._PACKAGE_MANAGER_HANDLE, 0)
                 return struct.pack("<i", 0) + fbo, [4]
-            self._emu.log.vfs("binder: ServiceManager -> null for unmodelled service %r", service)
+            self._context.log.vfs("binder: ServiceManager -> null for unmodelled service %r", service)
             fbo = struct.pack("<IIQQ", self._BINDER_TYPE_BINDER, 0, 0, 0)  # null strong binder = service absent
             return struct.pack("<i", 0) + fbo, [4]
         return self._pm_reply(code, parcel), []
