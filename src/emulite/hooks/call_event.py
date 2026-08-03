@@ -13,14 +13,30 @@ class CallEvent:
 
     caller: int  # address of the bl/blr instruction
     callee: int | None  # branch target, or None when an indirect target is unresolved
-    callee_name: str  # symbolized callee (module+off / symbol), for readability
-    args: tuple[int, ...] = ()  # x0..x7 (arm64) / r0..r3 (arm32) at the call
+    callee_name: str  # symbolized target address
+    args: tuple[int, ...] = ()
     return_value: int | None = None  # x0/r0 at the matching ret, or None if unmatched
-    depth: int = 0  # call-stack depth (indentation for a readable trace)
+    depth: int = 0
+    caller_name: str = ""  # symbolized call-site address
+    argument_registers: tuple[str, ...] = ()
+    return_register: str = "return"
 
     def format(self) -> str:
-        """Render a compact, indented call-trace line."""
         indent = "  " * self.depth
-        args = ", ".join(f"{a:#x}" for a in self.args)
-        result = "" if self.return_value is None else f" => {self.return_value:#x}"
-        return f"{indent}-> {self.callee_name}({args}){result}"
+        caller = self._format_caller(self.caller_name or f"{self.caller:#x}")
+        callee = self._format_address(self.callee_name)
+        registers = tuple(self.argument_registers[index] if index < len(self.argument_registers) else f"arg{index}" for index in range(len(self.args)))
+        args = ", ".join(f"{register}={value:#x}" for register, value in zip(registers, self.args))
+        result = "" if self.return_value is None else f" => {self.return_register}={self.return_value:#x}"
+        return f"{indent}{caller} -> {callee} ({args}){result}"
+
+    @staticmethod
+    def _format_caller(description: str) -> str:
+        return description.partition(" ")[0]
+
+    @staticmethod
+    def _format_address(description: str) -> str:
+        location, separator, symbol = description.partition(" ")
+        if not separator or symbol.startswith("["):
+            return description
+        return f"{location} [{symbol}]"

@@ -24,7 +24,7 @@ def setup_arm32() -> AndroidEmulator32:
 
 
 def on_call(_emu: AndroidEmulatorBase, event: CallEvent) -> TraceAction:
-    print(f"  {event.format()}")
+    print(event.format())
     return TraceAction.CONTINUE
 
 

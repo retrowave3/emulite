@@ -26,13 +26,16 @@ class CallTracer:
         self._arg_regs = regs.ARG_REGS
         self._ret_reg = regs.RET_REG
         self._sp_reg = regs.SP
+        prefix = "x" if self._arm64 else "r"
+        self._argument_registers = tuple(f"{prefix}{index}" for index in range(len(self._arg_regs)))
+        self._return_register = f"{prefix}0"
         self._open: list[tuple[CallEvent, int]] = []
         self._stopped = False
 
     def step(self, emu: AndroidEmulatorBase, address: int, size: int) -> None:
         if self._stopped:
             return
-        self._evict(emu.reg(self._sp_reg))
+        self._evict(emu.read_register(self._sp_reg))
         insn = self._disasm.one(emu.mem.read(address, 4), address)
         if insn is None:
             return
@@ -42,9 +45,16 @@ class CallTracer:
         if insn.group(capstone.CS_GRP_CALL):
             target = self._target(emu, insn)
             event = CallEvent(
-                caller=address, callee=target, callee_name=emu.describe_address(target) if target is not None else "?", args=tuple(emu.reg(r) for r in self._arg_regs), depth=len(self._open)
+                caller=address,
+                callee=target,
+                callee_name=emu.describe_address(target) if target is not None else "?",
+                args=tuple(emu.read_register(register) for register in self._arg_regs),
+                depth=len(self._open),
+                caller_name=emu.describe_address(address),
+                argument_registers=self._argument_registers,
+                return_register=self._return_register,
             )
-            self._open.append((event, emu.reg(self._sp_reg)))
+            self._open.append((event, emu.read_register(self._sp_reg)))
             if len(self._open) > self._MAX_OPEN:
                 self._open.pop(0)
 
@@ -56,7 +66,7 @@ class CallTracer:
         if not self._open:
             return
         event, _ = self._open.pop()
-        event.return_value = emu.reg(self._ret_reg) & self._mask
+        event.return_value = emu.read_register(self._ret_reg) & self._mask
         self._emit(event)
 
     def _evict(self, sp: int) -> None:
@@ -84,5 +94,5 @@ class CallTracer:
             if op.type == capstone.CS_OP_REG:
                 spec = self._disasm.resolve(insn.reg_name(op.reg))
                 if spec is not None:
-                    return emu.reg(spec[0]) & spec[1]
+                    return emu.read_register(spec[0]) & spec[1]
         return None
