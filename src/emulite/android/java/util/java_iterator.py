@@ -4,6 +4,7 @@ https://docs.oracle.com/javase/8/docs/api/java/util/Iterator.html
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import ClassVar
 
 from emulite.android.java.lang.java_object import JavaObject
@@ -12,9 +13,9 @@ from emulite.android.java.lang.java_object import JavaObject
 class JavaIterator(JavaObject):
     JAVA_NAME: ClassVar[str] = "java/util/Iterator"
 
-    def __init__(self, items: object = None):
+    def __init__(self, items: Iterable[object] | None = None):
         super().__init__()
-        self._items = list(items) if items else []
+        self._items = list(items) if items is not None else []
         self._index = 0
 
     def hasNext(self) -> bool:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from emulite.android.java.lang.java_class import JavaClass
 from emulite.android.java.lang.java_object import JavaObject
 from emulite.android.java.util._support import JavaSupport
@@ -9,12 +11,12 @@ from emulite.android.java.util.java_iterator import JavaIterator
 class _JavaList(JavaObject):
     # Shared List surface of ArrayList/LinkedList (both are just a Python list in the pure model).
 
-    def __init__(self, elements: object = None):
+    def __init__(self, elements: Iterable[object] | None = None):
         super().__init__()
-        self._items: list = list(elements) if elements else []
+        self._items: list[object] = list(elements) if elements is not None else []
 
     @classmethod
-    def jni_construct(cls, args: list) -> "_JavaList":
+    def jni_construct(cls, args: list[object]) -> _JavaList:
         # new List() / (int capacity) / (Collection). A capacity int -> empty; a collection -> copy.
         if args and hasattr(args[0], "_items"):
             return cls(list(args[0]._items))
@@ -64,12 +66,11 @@ class _JavaList(JavaObject):
 
     def clear(self) -> None:
         self._items = []
-        return None
 
-    def iterator(self) -> object:
+    def iterator(self) -> JavaIterator:
         return JavaIterator(self._items)
 
-    def toArray(self, *_ignore: object) -> object:
+    def toArray(self, *_ignore: object) -> JavaObject:
         return JavaObject(JavaClass("[Ljava/lang/Object;"), list(self._items))
 
     def toString(self) -> str:

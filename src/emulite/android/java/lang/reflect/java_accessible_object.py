@@ -23,23 +23,23 @@ class JavaAccessibleObject(JavaObject):
     def isAccessible(self) -> bool:
         return self._accessible
 
-    def getAnnotation(self, annotationClass: "JavaClass") -> "JavaObject | None":
+    def getAnnotation(self, annotationClass: JavaClass) -> JavaObject | None:
         return None
 
-    def isAnnotationPresent(self, annotationClass: "JavaClass") -> bool:
+    def isAnnotationPresent(self, annotationClass: JavaClass) -> bool:
         return False
 
-    def getAnnotations(self) -> list["JavaObject"]:
+    def getAnnotations(self) -> list[JavaObject]:
         return []
 
-    def getAnnotationsByType(self, annotationClass: "JavaClass") -> list["JavaObject"]:
+    def getAnnotationsByType(self, annotationClass: JavaClass) -> list[JavaObject]:
         return []
 
-    def getDeclaredAnnotation(self, annotationClass: "JavaClass") -> "JavaObject | None":
+    def getDeclaredAnnotation(self, annotationClass: JavaClass) -> JavaObject | None:
         return None
 
-    def getDeclaredAnnotations(self) -> list["JavaObject"]:
+    def getDeclaredAnnotations(self) -> list[JavaObject]:
         return []
 
-    def getDeclaredAnnotationsByType(self, annotationClass: "JavaClass") -> list["JavaObject"]:
+    def getDeclaredAnnotationsByType(self, annotationClass: JavaClass) -> list[JavaObject]:
         return []

@@ -8,32 +8,11 @@ from __future__ import annotations
 from typing import ClassVar
 
 from emulite.android.java.lang.java_object import JavaObject
-from emulite.android.java.util._support import HashKey, JavaSupport
+from emulite.android.java.util._support import JavaSupport
+from emulite.android.java.util.hash_key import HashKey
 from emulite.android.java.util.java_array_list import JavaArrayList
 from emulite.android.java.util.java_hash_set import JavaHashSet
-
-
-class JavaMapEntry(JavaObject):
-    JAVA_NAME: ClassVar[str] = "java/util/Map$Entry"
-
-    def __init__(self, key: object = None, value: object = None):
-        super().__init__()
-        self._key = key
-        self._value = value
-
-    def getKey(self) -> object:
-        return self._key
-
-    def getValue(self) -> object:
-        return self._value
-
-    def setValue(self, value: object) -> object:
-        old = self._value
-        self._value = value
-        return old
-
-    def toString(self) -> str:
-        return f"{JavaSupport.display(self._key)}={JavaSupport.display(self._value)}"
+from emulite.android.java.util.java_map_entry import JavaMapEntry
 
 
 class JavaHashMap(JavaObject):
@@ -41,10 +20,10 @@ class JavaHashMap(JavaObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self._data: dict = {}  # HashKey -> [key, value]
+        self._data: dict[HashKey, list[object]] = {}
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaHashMap":
+    def jni_construct(cls, args: list[object]) -> JavaHashMap:
         # new HashMap() / (int capacity[, float loadFactor]) / (Map). A capacity int -> empty; Map -> copy.
         instance = cls()
         if args and hasattr(args[0], "_data"):
@@ -91,7 +70,6 @@ class JavaHashMap(JavaObject):
 
     def clear(self) -> None:
         self._data = {}
-        return None
 
     def keySet(self) -> object:
         return JavaHashSet(k for k, _ in self._data.values())

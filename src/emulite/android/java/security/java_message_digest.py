@@ -9,6 +9,7 @@ from typing import ClassVar
 
 from emulite.android.java.lang.java_class import JavaClass
 from emulite.android.java.lang.java_object import JavaObject
+from emulite.android.java.value_conversion import as_bytes, as_int
 
 
 class JavaMessageDigest(JavaObject):
@@ -20,7 +21,7 @@ class JavaMessageDigest(JavaObject):
         self._digest = hashlib.new(algorithm.lower().replace("-", ""))
 
     @staticmethod
-    def getInstance(algorithm: object, *provider: object) -> "JavaMessageDigest":
+    def getInstance(algorithm: object, *provider: object) -> JavaMessageDigest:
         name = algorithm.value if isinstance(algorithm, JavaObject) else str(algorithm)
         return JavaMessageDigest(name)
 
@@ -29,10 +30,9 @@ class JavaMessageDigest(JavaObject):
         if isinstance(first, int):  # update(byte)
             self._digest.update(bytes([int(first) & 0xFF]))
         elif len(args) == 3:  # update(byte[], offset, len)
-            self._digest.update(self._raw_bytes(first, int(args[1]), int(args[2])))
+            self._digest.update(self._raw_bytes(first, as_int(args[1]), as_int(args[2])))
         else:  # update(byte[])
             self._digest.update(self._raw_bytes(first))
-        return None
 
     def digest(self, *data: object) -> JavaObject:
         if data:  # digest(byte[]) == update then digest
@@ -43,7 +43,6 @@ class JavaMessageDigest(JavaObject):
 
     def reset(self) -> None:
         self._digest = hashlib.new(self._algorithm.lower().replace("-", ""))
-        return None
 
     def getAlgorithm(self) -> str:
         return self._algorithm
@@ -56,8 +55,6 @@ class JavaMessageDigest(JavaObject):
         return JavaMessageDigest._raw_bytes(a) == JavaMessageDigest._raw_bytes(b)
 
     @staticmethod
-    def _raw_bytes(data: object, off: int = 0, length: "int | None" = None) -> bytes:
-        if isinstance(data, JavaObject):
-            data = data.value
-        raw = bytes(data or b"")
+    def _raw_bytes(data: object, off: int = 0, length: int | None = None) -> bytes:
+        raw = as_bytes(data)
         return raw[off : off + length] if length is not None else raw

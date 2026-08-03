@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from emulite.android.java.lang.java_object import JavaObject
+from emulite.android.java.value_conversion import as_int
 
 
 class JavaSupport:
@@ -18,19 +19,13 @@ class JavaSupport:
 
     @staticmethod
     def natural_compare(a: object, b: object) -> int:
-        if isinstance(a, JavaObject):
-            return int(a.compareTo(b))
-        return (a > b) - (a < b)
-
-
-class HashKey:
-    __slots__ = ("obj",)
-
-    def __init__(self, obj: object):
-        self.obj = obj
-
-    def __hash__(self) -> int:
-        return JavaSupport.java_hash(self.obj)
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, HashKey) and JavaSupport.java_equals(self.obj, other.obj)
+        compare = getattr(a, "compareTo", None)
+        if callable(compare):
+            return as_int(compare(b))
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            return (a > b) - (a < b)
+        if isinstance(a, str) and isinstance(b, str):
+            return (a > b) - (a < b)
+        if isinstance(a, bytes) and isinstance(b, bytes):
+            return (a > b) - (a < b)
+        raise TypeError(f"values of type {type(a).__name__} and {type(b).__name__} are not naturally comparable")

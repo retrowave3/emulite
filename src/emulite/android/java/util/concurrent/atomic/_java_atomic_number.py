@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import ClassVar
 
 from emulite.android.java.lang.java_number import JavaNumber
+from emulite.android.java.value_conversion import as_int
 
 
-class _JavaAtomicNumber(JavaNumber):
+class _JavaAtomicNumber(JavaNumber[int]):
     # Shared surface of AtomicInteger/AtomicLong; the subclass sets _BITS (its two's-complement width).
     _BITS: ClassVar[int]
 
@@ -17,15 +18,14 @@ class _JavaAtomicNumber(JavaNumber):
         super().__init__(value=self._wrap(initial))
 
     @classmethod
-    def jni_construct(cls, args: list) -> "_JavaAtomicNumber":
-        return cls(int(args[0]) if args else 0)
+    def jni_construct(cls, args: list[object]) -> _JavaAtomicNumber:
+        return cls(as_int(args[0]) if args else 0)
 
     def get(self) -> int:
         return int(self.value)
 
     def set(self, new_value: int) -> None:
         self.value = self._wrap(new_value)
-        return None
 
     def getAndSet(self, new_value: int) -> int:
         old, self.value = int(self.value), self._wrap(new_value)

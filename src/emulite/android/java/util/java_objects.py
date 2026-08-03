@@ -10,7 +10,7 @@ from emulite.android.java.lang.java_object import JavaObject
 from emulite.android.java.util._support import JavaSupport
 
 
-class JavaObjects(JavaObject):
+class JavaObjects:
     JAVA_NAME: ClassVar[str] = "java/util/Objects"
 
     @staticmethod
@@ -42,3 +42,6 @@ class JavaObjects(JavaObject):
         if obj is None:
             raise ValueError("java.util.Objects.requireNonNull: null (NullPointerException)")
         return obj
+
+
+JavaObject._REGISTRY[JavaObjects.JAVA_NAME] = JavaObjects

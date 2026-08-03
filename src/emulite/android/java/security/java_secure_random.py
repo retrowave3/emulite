@@ -10,27 +10,27 @@ from typing import ClassVar
 
 from emulite.android.java.lang.java_class import JavaClass
 from emulite.android.java.lang.java_object import JavaObject
+from emulite.android.java.value_conversion import as_bytearray, as_int
 
 
 class JavaSecureRandom(JavaObject):
     JAVA_NAME: ClassVar[str] = "java/security/SecureRandom"
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaSecureRandom":
+    def jni_construct(cls, args: list[object]) -> JavaSecureRandom:
         return cls()  # new SecureRandom() / (byte[] seed) — seed ignored
 
     @staticmethod
-    def getInstance(algorithm: object, *provider: object) -> "JavaSecureRandom":
+    def getInstance(algorithm: object, *provider: object) -> JavaSecureRandom:
         return JavaSecureRandom()
 
     def nextBytes(self, array: object) -> None:
-        buffer = array.value  # mutate the CALLER's bytearray in place
+        buffer = as_bytearray(array)
         buffer[:] = os.urandom(len(buffer))
-        return None
 
     def nextInt(self, *bound: object) -> int:
         if bound:
-            return secrets.randbelow(int(bound[0]))
+            return secrets.randbelow(as_int(bound[0]))
         value = int.from_bytes(os.urandom(4), "big")
         return value - 0x100000000 if value >= 0x80000000 else value
 
@@ -51,5 +51,5 @@ class JavaSecureRandom(JavaObject):
         return None  # os.urandom needs no seeding
 
     @staticmethod
-    def getSeed(count: int) -> "JavaObject":
+    def getSeed(count: int) -> JavaObject:
         return JavaObject(JavaClass("[B"), bytearray(os.urandom(int(count))))

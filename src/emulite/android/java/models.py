@@ -42,14 +42,17 @@ from emulite.android.java.util.concurrent.atomic.java_atomic_integer import Java
 from emulite.android.java.util.concurrent.atomic.java_atomic_long import JavaAtomicLong
 from emulite.android.java.util.java_array_list import JavaArrayList
 from emulite.android.java.util.java_arrays import JavaArrays
-from emulite.android.java.util.java_base64 import JavaBase64, JavaBase64Decoder, JavaBase64Encoder
+from emulite.android.java.util.java_base64 import JavaBase64
+from emulite.android.java.util.java_base64_decoder import JavaBase64Decoder
+from emulite.android.java.util.java_base64_encoder import JavaBase64Encoder
 from emulite.android.java.util.java_collections import JavaCollections
-from emulite.android.java.util.java_hash_map import JavaHashMap, JavaMapEntry
+from emulite.android.java.util.java_hash_map import JavaHashMap
 from emulite.android.java.util.java_hash_set import JavaHashSet
 from emulite.android.java.util.java_iterator import JavaIterator
 from emulite.android.java.util.java_linked_hash_map import JavaLinkedHashMap
 from emulite.android.java.util.java_linked_list import JavaLinkedList
 from emulite.android.java.util.java_locale import JavaLocale
+from emulite.android.java.util.java_map_entry import JavaMapEntry
 from emulite.android.java.util.java_objects import JavaObjects
 from emulite.android.java.util.java_optional import JavaOptional
 from emulite.android.java.util.java_string_tokenizer import JavaStringTokenizer

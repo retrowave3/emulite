@@ -9,9 +9,10 @@ from typing import ClassVar
 from emulite.android.java.jvalue import JChar
 from emulite.android.java.lang.java_object import JavaObject
 from emulite.android.java.lang.java_string import JavaString
+from emulite.android.java.value_conversion import as_int
 
 
-class JavaStringBuilder(JavaObject):
+class JavaStringBuilder(JavaObject[str]):
     JAVA_NAME: ClassVar[str] = "java/lang/StringBuilder"
 
     def __init__(self, initial: object = ""):
@@ -19,7 +20,7 @@ class JavaStringBuilder(JavaObject):
         super().__init__(value=text)
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaStringBuilder":
+    def jni_construct(cls, args: list[object]) -> JavaStringBuilder:
         # new StringBuilder() / (int capacity) / (String) / (CharSequence). A capacity int -> empty.
         return cls(args[0]) if args and isinstance(args[0], JavaObject) else cls()
 
@@ -38,43 +39,41 @@ class JavaStringBuilder(JavaObject):
             return value.toString()
         return str(value)
 
-    def append(self, value: object) -> "JavaStringBuilder":
+    def append(self, value: object) -> JavaStringBuilder:
         self.value = self._s() + self._render(value)
         return self
 
-    def insert(self, offset: int, value: object) -> "JavaStringBuilder":
+    def insert(self, offset: int, value: object) -> JavaStringBuilder:
         s = self._s()
         self.value = s[: int(offset)] + self._render(value) + s[int(offset) :]
         return self
 
-    def replace(self, start: int, end: int, text: object) -> "JavaStringBuilder":
+    def replace(self, start: int, end: int, text: object) -> JavaStringBuilder:
         s = self._s()
         self.value = s[: int(start)] + self._render(text) + s[int(end) :]
         return self
 
-    def delete(self, start: int, end: int) -> "JavaStringBuilder":
+    def delete(self, start: int, end: int) -> JavaStringBuilder:
         s = self._s()
         self.value = s[: int(start)] + s[int(end) :]
         return self
 
-    def deleteCharAt(self, index: int) -> "JavaStringBuilder":
+    def deleteCharAt(self, index: int) -> JavaStringBuilder:
         s = self._s()
         self.value = s[: int(index)] + s[int(index) + 1 :]
         return self
 
-    def reverse(self) -> "JavaStringBuilder":
+    def reverse(self) -> JavaStringBuilder:
         self.value = self._s()[::-1]
         return self
 
     def setCharAt(self, index: int, ch: object) -> None:
         s = self._s()
-        self.value = s[: int(index)] + chr(int(ch)) + s[int(index) + 1 :]
-        return None
+        self.value = s[: int(index)] + chr(as_int(ch)) + s[int(index) + 1 :]
 
     def setLength(self, length: int) -> None:
         s, n = self._s(), int(length)
         self.value = s[:n] if n <= len(s) else s + "\0" * (n - len(s))
-        return None
 
     def charAt(self, index: int) -> int:
         return ord(self._s()[int(index)])
@@ -88,7 +87,7 @@ class JavaStringBuilder(JavaObject):
     def indexOf(self, target: object, from_index: int = 0) -> int:
         return self._s().find(target.value if isinstance(target, JavaObject) else str(target), int(from_index))
 
-    def substring(self, start: int, end: "int | None" = None) -> JavaString:
+    def substring(self, start: int, end: int | None = None) -> JavaString:
         s = self._s()
         return JavaString(s[int(start) :] if end is None else s[int(start) : int(end)])
 

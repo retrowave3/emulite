@@ -4,16 +4,23 @@ https://docs.oracle.com/javase/8/docs/api/java/lang/Number.html
 
 from __future__ import annotations
 
-from typing import ClassVar
+import math
+from typing import ClassVar, Generic, TypeVar
 
 from emulite.android.java.lang.java_object import JavaObject
 
+NumberValue = TypeVar("NumberValue", int, float)
 
-class JavaNumber(JavaObject):
+
+class JavaNumber(JavaObject[NumberValue], Generic[NumberValue]):
     JAVA_NAME: ClassVar[str] = "java/lang/Number"
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaNumber":
+    def valueOf(cls, value: object) -> JavaNumber[NumberValue]:
+        raise NotImplementedError
+
+    @classmethod
+    def jni_construct(cls, args: list[object]) -> JavaNumber[NumberValue]:
         # new Integer(int)/new Integer(String)/... — each subclass's valueOf accepts both forms.
         return cls.valueOf(args[0]) if args else cls()
 
@@ -24,7 +31,7 @@ class JavaNumber(JavaObject):
 
     @staticmethod
     def _d2i(value: float) -> int:
-        if value != value:
+        if math.isnan(value):
             return 0
         if value >= 0x7FFFFFFF:
             return 0x7FFFFFFF
@@ -34,7 +41,7 @@ class JavaNumber(JavaObject):
 
     @staticmethod
     def _d2l(value: float) -> int:
-        if value != value:
+        if math.isnan(value):
             return 0
         if value >= 0x7FFFFFFFFFFFFFFF:
             return 0x7FFFFFFFFFFFFFFF

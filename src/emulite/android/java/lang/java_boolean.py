@@ -9,14 +9,14 @@ from typing import ClassVar
 from emulite.android.java.lang.java_object import JavaObject
 
 
-class JavaBoolean(JavaObject):
+class JavaBoolean(JavaObject[bool]):
     JAVA_NAME: ClassVar[str] = "java/lang/Boolean"
 
     def __init__(self, value: bool = False):
         super().__init__(value=bool(value))
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaBoolean":
+    def jni_construct(cls, args: list[object]) -> JavaBoolean:
         if not args:
             return cls(False)
         arg = args[0]
@@ -30,7 +30,7 @@ class JavaBoolean(JavaObject):
     def toString(self) -> str:
         return "true" if self.value else "false"
 
-    def equals(self, obj: "JavaObject | None") -> bool:
+    def equals(self, obj: object) -> bool:
         return isinstance(obj, JavaBoolean) and bool(obj.value) == bool(self.value)
 
     def hashCode(self) -> int:

@@ -4,29 +4,35 @@ https://docs.oracle.com/javase/8/docs/api/java/lang/Object.html
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar, cast
 
 if TYPE_CHECKING:
     from emulite.android.java.lang.java_class import JavaClass
 
 
-class JavaObject:
+JavaPayload = TypeVar("JavaPayload")
+
+
+class JavaObject(Generic[JavaPayload]):
     JAVA_NAME: ClassVar[str] = "java/lang/Object"
 
     # JNI name -> modelled Python type, self-populated via __init_subclass__. Lets the base look up
     # JavaClass without importing java_class (which imports us) — breaking the base<->derived cycle.
-    _REGISTRY: ClassVar[dict[str, type]] = {"java/lang/Object": None}
+    _REGISTRY: ClassVar[dict[str, type]] = {}
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
         JavaObject._REGISTRY.setdefault(cls.JAVA_NAME, cls)
 
-    def __init__(self, java_class: "JavaClass | None" = None, value: object = None):
-        self.java_class = java_class
-        self.value = value  # emulite payload: array bytes, boxed prim, native handle…
+    def __init__(self, java_class: JavaClass | None = None, value: JavaPayload | None = None):
+        self.java_class: JavaClass | None = java_class
+        self.value = cast(JavaPayload, value)  # models without a payload intentionally store None
 
-    def getClass(self) -> "JavaClass":
-        java_class = JavaObject._REGISTRY["java/lang/Class"]
+    def getClass(self) -> JavaClass:
+        from emulite.android.java.lang.java_class import JavaClass
+
+        registered_class = JavaObject._REGISTRY["java/lang/Class"]
+        java_class = cast(type[JavaClass], registered_class)
         if type(self) is JavaObject:  # a generic/proxied object reports its stored class
             return self.java_class if self.java_class is not None else java_class("java/lang/Object")
         return java_class(self.JAVA_NAME, backing=type(self))  # a modelled type reports its own class
@@ -34,13 +40,13 @@ class JavaObject:
     def hashCode(self) -> int:
         return id(self) & 0x7FFFFFFF  # identity hash masked to a positive jint
 
-    def equals(self, obj: "JavaObject | None") -> bool:
+    def equals(self, obj: object) -> bool:
         return self is obj
 
     def toString(self) -> str:
         return f"{self.getClass().getName()}@{self.hashCode():x}"
 
-    def clone(self) -> "JavaObject":
+    def clone(self) -> JavaObject:
         raise NotImplementedError("java.lang.Object.clone: not Cloneable")
 
     def finalize(self) -> None:

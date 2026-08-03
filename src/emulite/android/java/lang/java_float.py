@@ -4,14 +4,16 @@ https://docs.oracle.com/javase/8/docs/api/java/lang/Float.html
 
 from __future__ import annotations
 
+import math
 import struct
 from typing import ClassVar
 
 from emulite.android.java.lang.java_number import JavaNumber
 from emulite.android.java.lang.java_object import JavaObject
+from emulite.android.java.value_conversion import as_float
 
 
-class JavaFloat(JavaNumber):
+class JavaFloat(JavaNumber[float]):
     JAVA_NAME: ClassVar[str] = "java/lang/Float"
 
     def __init__(self, value: float = 0.0):
@@ -22,8 +24,8 @@ class JavaFloat(JavaNumber):
         return struct.unpack("<f", struct.pack("<f", value))[0]  # coerce to 32-bit float precision
 
     @staticmethod
-    def valueOf(value: object) -> "JavaFloat":
-        return JavaFloat(float(value.value) if isinstance(value, JavaObject) else float(value))
+    def valueOf(value: object) -> JavaFloat:
+        return JavaFloat(as_float(value))
 
     @staticmethod
     def parseFloat(text: object) -> float:
@@ -33,7 +35,7 @@ class JavaFloat(JavaNumber):
     @staticmethod
     def _bits(value: float) -> int:
         # Float.floatToIntBits: every NaN collapses to the canonical 0x7fc00000.
-        if value != value:
+        if math.isnan(value):
             return 0x7FC00000
         return struct.unpack("<I", struct.pack("<f", value))[0]
 
@@ -57,7 +59,7 @@ class JavaFloat(JavaNumber):
 
     def toString(self) -> str:
         value = self.value
-        if value != value:
+        if math.isnan(value):
             return "NaN"
         if value == float("inf"):
             return "Infinity"
@@ -66,7 +68,7 @@ class JavaFloat(JavaNumber):
         text = repr(float(value))
         return text if ("." in text or "e" in text or "E" in text) else text + ".0"
 
-    def equals(self, obj: "JavaObject | None") -> bool:
+    def equals(self, obj: object) -> bool:
         return isinstance(obj, JavaFloat) and self._bits(self.value) == self._bits(obj.value)
 
     def hashCode(self) -> int:

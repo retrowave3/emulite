@@ -19,17 +19,17 @@ class JavaOptional(JavaObject):
         self._present = present
 
     @staticmethod
-    def of(value: object) -> "JavaOptional":
+    def of(value: object) -> JavaOptional:
         if value is None:
             raise ValueError("java.util.Optional.of: null (NullPointerException)")
         return JavaOptional(value, True)
 
     @staticmethod
-    def ofNullable(value: object) -> "JavaOptional":
+    def ofNullable(value: object) -> JavaOptional:
         return JavaOptional(value, value is not None)
 
     @staticmethod
-    def empty() -> "JavaOptional":
+    def empty() -> JavaOptional:
         return JavaOptional(None, False)
 
     def isPresent(self) -> bool:

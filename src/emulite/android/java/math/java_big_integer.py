@@ -9,9 +9,10 @@ from typing import ClassVar
 
 from emulite.android.java.lang.java_class import JavaClass
 from emulite.android.java.lang.java_object import JavaObject
+from emulite.android.java.value_conversion import as_int
 
 
-class JavaBigInteger(JavaObject):
+class JavaBigInteger(JavaObject[int]):
     JAVA_NAME: ClassVar[str] = "java/math/BigInteger"
 
     def __init__(self, value: object = 0, radix: int = 10):
@@ -23,64 +24,64 @@ class JavaBigInteger(JavaObject):
                 value = int(str(payload), int(radix))
         elif isinstance(value, str):
             value = int(value, int(radix))
-        super().__init__(value=int(value))
+        super().__init__(value=as_int(value))
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaBigInteger":
-        return cls(*args[:2]) if args else cls()
+    def jni_construct(cls, args: list[object]) -> JavaBigInteger:
+        return cls(args[0], as_int(args[1])) if len(args) > 1 else cls(args[0]) if args else cls()
 
     @staticmethod
-    def valueOf(value: object) -> "JavaBigInteger":
-        return JavaBigInteger(int(value.value) if isinstance(value, JavaObject) else int(value))
+    def valueOf(value: object) -> JavaBigInteger:
+        return JavaBigInteger(as_int(value))
 
     @staticmethod
     def _v(other: object) -> int:
-        return int(other.value) if isinstance(other, JavaObject) else int(other)
+        return as_int(other)
 
-    def add(self, other: object) -> "JavaBigInteger":
+    def add(self, other: object) -> JavaBigInteger:
         return JavaBigInteger(int(self.value) + self._v(other))
 
-    def subtract(self, other: object) -> "JavaBigInteger":
+    def subtract(self, other: object) -> JavaBigInteger:
         return JavaBigInteger(int(self.value) - self._v(other))
 
-    def multiply(self, other: object) -> "JavaBigInteger":
+    def multiply(self, other: object) -> JavaBigInteger:
         return JavaBigInteger(int(self.value) * self._v(other))
 
-    def divide(self, other: object) -> "JavaBigInteger":
+    def divide(self, other: object) -> JavaBigInteger:
         a, b = int(self.value), self._v(other)
         q = abs(a) // abs(b)  # Java integer division truncates toward zero
         return JavaBigInteger(q if (a < 0) == (b < 0) else -q)
 
-    def mod(self, other: object) -> "JavaBigInteger":
+    def mod(self, other: object) -> JavaBigInteger:
         return JavaBigInteger(int(self.value) % self._v(other))  # BigInteger.mod result is non-negative
 
-    def remainder(self, other: object) -> "JavaBigInteger":
+    def remainder(self, other: object) -> JavaBigInteger:
         a, b = int(self.value), self._v(other)
         r = abs(a) % abs(b)  # remainder has the sign of the dividend
         return JavaBigInteger(r if a >= 0 else -r)
 
-    def pow(self, exponent: int) -> "JavaBigInteger":
+    def pow(self, exponent: int) -> JavaBigInteger:
         return JavaBigInteger(int(self.value) ** int(exponent))
 
-    def modPow(self, exponent: object, modulus: object) -> "JavaBigInteger":
+    def modPow(self, exponent: object, modulus: object) -> JavaBigInteger:
         return JavaBigInteger(pow(int(self.value), self._v(exponent), self._v(modulus)))
 
-    def modInverse(self, modulus: object) -> "JavaBigInteger":
+    def modInverse(self, modulus: object) -> JavaBigInteger:
         return JavaBigInteger(pow(int(self.value), -1, self._v(modulus)))
 
-    def gcd(self, other: object) -> "JavaBigInteger":
+    def gcd(self, other: object) -> JavaBigInteger:
         return JavaBigInteger(math.gcd(int(self.value), self._v(other)))
 
-    def negate(self) -> "JavaBigInteger":
+    def negate(self) -> JavaBigInteger:
         return JavaBigInteger(-int(self.value))
 
-    def abs(self) -> "JavaBigInteger":
+    def abs(self) -> JavaBigInteger:
         return JavaBigInteger(abs(int(self.value)))
 
-    def shiftLeft(self, n: int) -> "JavaBigInteger":
+    def shiftLeft(self, n: int) -> JavaBigInteger:
         return JavaBigInteger(int(self.value) << int(n))
 
-    def shiftRight(self, n: int) -> "JavaBigInteger":
+    def shiftRight(self, n: int) -> JavaBigInteger:
         return JavaBigInteger(int(self.value) >> int(n))
 
     # (Bitwise and/or/not/xor are omitted: their Java names are Python keywords and so are unreachable
@@ -124,7 +125,7 @@ class JavaBigInteger(JavaObject):
             n //= int(radix)
         return sign + out
 
-    def toByteArray(self) -> "JavaObject":
+    def toByteArray(self) -> JavaObject:
         v = int(self.value)
         length = max(1, (v.bit_length() // 8) + 1)  # minimal signed big-endian length
         return JavaObject(JavaClass("[B"), bytearray(v.to_bytes(length, "big", signed=True)))

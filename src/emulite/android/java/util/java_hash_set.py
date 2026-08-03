@@ -4,25 +4,27 @@ https://docs.oracle.com/javase/8/docs/api/java/util/HashSet.html
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import ClassVar
 
 from emulite.android.java.lang.java_class import JavaClass
 from emulite.android.java.lang.java_object import JavaObject
-from emulite.android.java.util._support import HashKey, JavaSupport
+from emulite.android.java.util._support import JavaSupport
+from emulite.android.java.util.hash_key import HashKey
 from emulite.android.java.util.java_iterator import JavaIterator
 
 
 class JavaHashSet(JavaObject):
     JAVA_NAME: ClassVar[str] = "java/util/HashSet"
 
-    def __init__(self, elements: object = None):
+    def __init__(self, elements: Iterable[object] | None = None):
         super().__init__()
-        self._data: dict = {}  # HashKey -> element
-        for element in elements or []:
+        self._data: dict[HashKey, object] = {}
+        for element in elements or ():
             self._data[HashKey(element)] = element
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaHashSet":
+    def jni_construct(cls, args: list[object]) -> JavaHashSet:
         if args and hasattr(args[0], "_data"):  # new HashSet(Collection) -> copy
             return cls(list(args[0]._data.values()))
         if args and hasattr(args[0], "_items"):
@@ -59,12 +61,11 @@ class JavaHashSet(JavaObject):
 
     def clear(self) -> None:
         self._data = {}
-        return None
 
-    def iterator(self) -> object:
+    def iterator(self) -> JavaIterator:
         return JavaIterator(list(self._data.values()))
 
-    def toArray(self, *_ignore: object) -> object:
+    def toArray(self, *_ignore: object) -> JavaObject:
         return JavaObject(JavaClass("[Ljava/lang/Object;"), list(self._data.values()))
 
     def toString(self) -> str:

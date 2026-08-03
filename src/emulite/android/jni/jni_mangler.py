@@ -4,8 +4,10 @@ from __future__ import annotations
 class JniMangler:
     @staticmethod
     def component(text: str) -> str:
-        out = []
-        for char in text:
+        out: list[str] = []
+        encoded = text.encode("utf-16-be", "surrogatepass")
+        for offset in range(0, len(encoded), 2):
+            char = chr(int.from_bytes(encoded[offset : offset + 2], "big"))
             if char.isascii() and char.isalnum():
                 out.append(char)
             elif char in "/.":
@@ -17,7 +19,7 @@ class JniMangler:
             elif char == "[":
                 out.append("_3")
             else:
-                out.append("_0%04x" % ord(char))
+                out.append(f"_0{ord(char):04x}")
         return "".join(out)
 
     @staticmethod
@@ -26,5 +28,7 @@ class JniMangler:
 
     @staticmethod
     def overloaded(class_name: str, method_name: str, signature: str) -> str:
-        args = signature[1 : signature.index(")")] if ")" in signature else ""
+        if not signature.startswith("(") or ")" not in signature:
+            raise ValueError(f"invalid JNI method signature: {signature!r}")
+        args = signature[1 : signature.index(")")]
         return JniMangler.mangle(class_name, method_name) + "__" + JniMangler.component(args)

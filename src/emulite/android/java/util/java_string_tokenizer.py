@@ -8,6 +8,7 @@ import re
 from typing import ClassVar
 
 from emulite.android.java.lang.java_object import JavaObject
+from emulite.android.java.value_conversion import as_text
 
 
 class JavaStringTokenizer(JavaObject):
@@ -15,13 +16,13 @@ class JavaStringTokenizer(JavaObject):
 
     def __init__(self, text: object = "", delimiters: object = " \t\n\r\f", _return_delims: object = False):
         super().__init__()
-        source = text.value if isinstance(text, JavaObject) else (text or "")
-        delims = delimiters.value if isinstance(delimiters, JavaObject) else delimiters
+        source = as_text(text or "")
+        delims = as_text(delimiters)
         self._tokens = [t for t in re.split("[" + re.escape(delims) + "]", source) if t]
         self._index = 0
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaStringTokenizer":
+    def jni_construct(cls, args: list[object]) -> JavaStringTokenizer:
         return cls(*args[:3])
 
     def hasMoreTokens(self) -> bool:

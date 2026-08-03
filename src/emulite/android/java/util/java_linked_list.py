@@ -19,11 +19,9 @@ class JavaLinkedList(_JavaList):
 
     def addFirst(self, element: object) -> None:
         self._items.insert(0, element)
-        return None
 
     def addLast(self, element: object) -> None:
         self._items.append(element)
-        return None
 
     def getFirst(self) -> object:
         return self._items[0]
@@ -55,7 +53,6 @@ class JavaLinkedList(_JavaList):
 
     def push(self, element: object) -> None:
         self._items.insert(0, element)
-        return None
 
     def pop(self) -> object:
         return self._items.pop(0)

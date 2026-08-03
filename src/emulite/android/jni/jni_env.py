@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import inspect
 import struct
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from emulite.android.cformat import RegisterArgs32, VaListArgs, VaListArgs32, VarArgs
 from emulite.android.dalvik_vm import DalvikVM
@@ -18,6 +19,7 @@ from emulite.android.jni.enums.jni_function import JNIFunction
 from emulite.android.jni.enums.jni_return_code import JNIReturnCode
 from emulite.android.jni.enums.jni_version import JNIVersion
 from emulite.android.jni.mutf8 import Mutf8
+from emulite.android.jni.types.native_call import NativeCall
 from emulite.common.errors import EmulatorCrashed, JavaException
 from emulite.cpu.backend import CpuArch
 from emulite.cpu.registers.arm32_reg import Arm32Reg
@@ -26,11 +28,14 @@ from emulite.memory import RW, MemoryLayout
 
 if TYPE_CHECKING:
     from emulite.android_emulator import AndroidEmulatorBase
+    from emulite.android_emulator32 import AndroidEmulator32
 
 
 class JNIEnv:
-    _ELEM_SIZE = {"Z": 1, "B": 1, "C": 2, "S": 2, "I": 4, "J": 8, "F": 4, "D": 8}
-    _PRIM_ARRAY_NAME = {"Z": "Boolean", "B": "Byte", "C": "Char", "S": "Short", "I": "Int", "J": "Long", "F": "Float", "D": "Double"}
+    """Guest JNI function table and Java/native value bridge."""
+
+    _ELEM_SIZE: ClassVar[dict[str, int]] = {"Z": 1, "B": 1, "C": 2, "S": 2, "I": 4, "J": 8, "F": 4, "D": 8}
+    _PRIM_ARRAY_NAME: ClassVar[dict[str, str]] = {"Z": "Boolean", "B": "Byte", "C": "Char", "S": "Short", "I": "Int", "J": "Long", "F": "Float", "D": "Double"}
     _MISS = object()
 
     @staticmethod
@@ -38,7 +43,7 @@ class JNIEnv:
         return ["L" if d[0] in "[L" else d for d in JavaClass.split_arg_descriptors(signature)]
 
     @staticmethod
-    def _build_table(emu: "AndroidEmulatorBase", base: int, handlers: dict[int, Callable[[], "int | None"]], label: str) -> None:
+    def _build_table(emu: AndroidEmulatorBase, base: int, handlers: dict[int, Callable[[], int | None]], label: str) -> None:
         mem = emu.mem
         pointer_size = emu.arch.pointer_size
         write_ptr = mem.write_u64 if pointer_size == 8 else mem.write_u32
@@ -53,17 +58,18 @@ class JNIEnv:
             slot = emu.trap.alloc_slot(handler, f"{label}:{handler.__name__}")
             write_ptr(functions + index * pointer_size, slot)
 
-    def __init__(self, emu: "AndroidEmulatorBase", version: JNIVersion = JNIVersion.JNI_VERSION_1_6):
+    def __init__(self, emu: AndroidEmulatorBase, version: JNIVersion = JNIVersion.JNI_VERSION_1_6):
         self.emu = emu
         self.handler = emu.jni_handler
         self.log = emu.log
         self.version = version
         self.dvm = DalvikVM(emu)
         self._array_ptrs: dict[int, int] = {}
-        self._local_frames: list[set] = []
+        self._string_ptrs: set[int] = set()
+        self._local_frames: list[set[int]] = []
         self._pending_exception: object | None = None
         self._native_return_slot = 0  # one-shot trampoline a redirected native returns through
-        self._native_calls: list = []  # LIFO continuations: (ret_type, saved_lr, saved_sp, ref_mark)
+        self._native_calls: list[NativeCall] = []
         self.pointer = MemoryLayout.JNIENV_BASE
         self._build_table(emu, self.pointer, self._handlers(), "JNIEnv")
 
@@ -77,7 +83,7 @@ class JNIEnv:
         obj = self.dvm.get(ref)
         return obj.value if isinstance(obj, JavaObject) and isinstance(obj.value, str) else ""
 
-    def _array(self, ref: int) -> "JavaObject | None":
+    def _array(self, ref: int) -> JavaObject | None:
         obj = self.dvm.get(ref)
         return obj if isinstance(obj, JavaObject) and obj.value is not None else None
 
@@ -114,14 +120,20 @@ class JNIEnv:
             return JChar(raw & 0xFFFF)
         return raw & 0xFFFFFFFFFFFFFFFF
 
-    def _box(self, letter: str, result: object) -> "int | None":
+    def _box(self, letter: str, result: object) -> int | None:
         if letter == "V":
             return None
         if letter == "Z":
             return 1 if result else 0
         if letter in "BCSIJ":
-            return int(result or 0) & 0xFFFFFFFFFFFFFFFF
+            if result is None:
+                return 0
+            if not isinstance(result, (bool, int, float)):
+                raise TypeError(f"JNI {letter} return requires a number, got {type(result).__name__}")
+            return int(result) & 0xFFFFFFFFFFFFFFFF
         if letter in "FD":
+            if result is not None and not isinstance(result, (bool, int, float)):
+                raise TypeError(f"JNI {letter} return requires a number, got {type(result).__name__}")
             value = float(result or 0.0)
             if self.emu.arch.cpu_arch is CpuArch.ARM:
                 if letter == "D":
@@ -142,19 +154,22 @@ class JNIEnv:
             return self.dvm.add_local(JavaObject(JavaClass("[Ljava/lang/Object;"), result))
         if result is None:
             return 0
-        return int(result) & 0xFFFFFFFFFFFFFFFF
+        if isinstance(result, (bool, int, float)):
+            return int(result) & 0xFFFFFFFFFFFFFFFF
+        raise TypeError(f"unsupported JNI return value: {type(result).__name__}")
 
-    def _read_call_args(self, arg_types: list[str], mode: str, first_arg: int) -> list:
+    def _read_call_args(self, arg_types: list[str], mode: str, first_arg: int) -> list[object]:
         if mode == "A":
             return self._read_jvalues(arg_types, self._arg(first_arg))
         if mode == "V":
             return self._read_valist(arg_types, self._arg(first_arg))
         return self._read_registers(arg_types, first_arg)
 
-    def _read_registers(self, arg_types: list[str], gp_start: int) -> list:
+    def _read_registers(self, arg_types: list[str], gp_start: int) -> list[object]:
         if self.emu.arch.cpu_arch is CpuArch.ARM:
-            return self._read_from_varargs(RegisterArgs32(self.emu, gp_start), arg_types)
-        gp, fp, out = gp_start, 0, []
+            return self._read_from_varargs(RegisterArgs32(cast("AndroidEmulator32", self.emu), gp_start), arg_types)
+        gp, fp = gp_start, 0
+        out: list[object] = []
         for letter in arg_types:
             if letter in "FD":
                 out.append(self._as_double(self.emu.backend.reg_read(Arm64Reg.Q[fp])))
@@ -164,8 +179,8 @@ class JNIEnv:
                 gp += 1
         return out
 
-    def _read_from_varargs(self, source: VarArgs, arg_types: list[str]) -> list:
-        out = []
+    def _read_from_varargs(self, source: VarArgs, arg_types: list[str]) -> list[object]:
+        out: list[object] = []
         for letter in arg_types:
             if letter in "FD":
                 out.append(source.real())
@@ -173,31 +188,32 @@ class JNIEnv:
                 out.append(self._convert(letter, source.integer(letter == "J")))
         return out
 
-    def _read_valist(self, arg_types: list[str], valist_ptr: int) -> list:
-        va_list = VaListArgs32 if self.emu.arch.cpu_arch is CpuArch.ARM else VaListArgs
-        return self._read_from_varargs(va_list(self.emu, valist_ptr), arg_types)
+    def _read_valist(self, arg_types: list[str], valist_ptr: int) -> list[object]:
+        if self.emu.arch.cpu_arch is CpuArch.ARM:
+            return self._read_from_varargs(VaListArgs32(cast("AndroidEmulator32", self.emu), valist_ptr), arg_types)
+        return self._read_from_varargs(VaListArgs(self.emu, valist_ptr), arg_types)
 
-    def _read_jvalues(self, arg_types: list[str], array_ptr: int) -> list:
-        out = []
+    def _read_jvalues(self, arg_types: list[str], array_ptr: int) -> list[object]:
+        out: list[object] = []
         for index, letter in enumerate(arg_types):
             raw = self.emu.mem.read_u64(array_ptr + index * 8)
             out.append(self._as_real(letter, raw) if letter in "FD" else self._convert(letter, raw))
         return out
 
-    def _real_method(self, obj: object, name: str):
+    def _real_method(self, obj: object, name: str) -> Callable[..., object] | None:
         if not isinstance(obj, JavaObject) or type(obj) is JavaObject:
             return None
         fn = getattr(type(obj), name, None)
         return fn.__get__(obj) if callable(fn) else None
 
-    def _real_static_method(self, java_class: object, name: str):
+    def _real_static_method(self, java_class: object, name: str) -> Callable[..., object] | None:
         backing = getattr(java_class, "backing", None)
         if backing is None:
             return None
         raw = inspect.getattr_static(backing, name, None)
         return getattr(backing, name) if isinstance(raw, (staticmethod, classmethod)) else None
 
-    def _call(self, ret: str, kind: str, mode: str) -> "int | None":
+    def _call(self, ret: str, kind: str, mode: str) -> int | None:
         method_arg = 3 if kind == "nonvirtual" else 2  # nonvirtual has an extra jclass before the id
         method = self.dvm.member(self._arg(method_arg))
         if not isinstance(method, JavaMethod):
@@ -205,8 +221,9 @@ class JNIEnv:
         arg_types = self.parse_arg_types(method.signature)
         args = self._read_call_args(arg_types, mode, method_arg + 1)
         recv = None if kind == "static" else self.dvm.get(self._arg(1))
-        real = self._real_static_method(method.java_class, method.name) if kind == "static" else self._real_method(recv, method.name)
-        if real is None and getattr(method, "native_addr", 0):
+        declaring_class = method.getDeclaringClass()
+        real = self._real_static_method(declaring_class, method.name) if kind == "static" else self._real_method(recv, method.name)
+        if real is None and method.native_addr:
             # A registered native (its body is in a loaded .so) — run it on the current guest stack and let it
             # return for us, exactly like the JVM. Redirects PC; the native returns through _native_return.
             self._dispatch_native(method, arg_types, args, ret, kind)
@@ -221,10 +238,10 @@ class JNIEnv:
         except JavaException as exc:  # a modelled Java method threw -> set the pending JNI exception
             self._pending_exception = self._make_exception(JavaClass(exc.class_name), exc.message)
             result = None
-        self.log.jni_call("Call", f"{method.java_class.name}.{method.name}", 0)
+        self.log.jni_call("Call", f"{declaring_class.name}.{method.name}", 0)
         return self._box(ret, result)
 
-    def _dispatch_native(self, method: JavaMethod, arg_types: list[str], args: list, ret: str, kind: str) -> None:
+    def _dispatch_native(self, method: JavaMethod, arg_types: list[str], args: list[object], ret: str, kind: str) -> None:
         # Design (B): no nested emu_start (unicorn forbids it from inside a hook). Set up the native's AAPCS
         # frame on the CURRENT stack (x0=JNIEnv, x1=this/jclass, args…), make LR a one-shot return trampoline,
         # and jump to native_addr; the same emu_start runs the native, whose own JNI calls are just more traps.
@@ -232,22 +249,22 @@ class JNIEnv:
             self._native_return_slot = self.emu.trap.alloc_slot(self._native_return, "JNIEnv:native-return")
         saved_lr, saved_sp = (self.emu.lr, self.emu.sp)  # where Call*Method returns; SP to restore after the native
         ref_mark = self.dvm.local_mark()  # the native's local-ref frame (jclass + object args live here)
-        this_ref = self.dvm.add_local(method.java_class) if kind == "static" else self._arg(1)
+        this_ref = self.dvm.add_local(method.getDeclaringClass()) if kind == "static" else self._arg(1)
         self.emu._marshal_native(int(this_ref), arg_types, args)  # x0=env, x1=this, ints in x2.., fp in v0.., spill
         self.emu.lr = self._native_return_slot
-        self._native_calls.append((ret, saved_lr, saved_sp, ref_mark))
+        self._native_calls.append(NativeCall(ret, saved_lr, saved_sp, ref_mark))
         self.emu.pc = method.native_addr
 
     def _native_return(self) -> None:
-        ret, saved_lr, saved_sp, ref_mark = self._native_calls.pop()
-        if ret in ("L", "["):  # promote the returned local ref out of the native's frame
+        call = self._native_calls.pop()
+        if call.return_type in ("L", "["):  # promote the returned local ref out of the native's frame
             obj = self.dvm.get(self.emu.ret)  # resolve BEFORE releasing (release invalidates the handle)
-            self.dvm.local_release(ref_mark)
+            self.dvm.local_release(call.local_refs)
             self.emu.ret = self.dvm.add_local(obj) if obj is not None else 0
         else:
-            self.dvm.local_release(ref_mark)  # int/long/bool/float/double/void: value already in x0 / v0
-        self.emu.sp = saved_sp  # undo the arg spill; resume the Call*Method caller
-        self.emu.pc = saved_lr
+            self.dvm.local_release(call.local_refs)  # int/long/bool/float/double/void: value already in x0 / v0
+        self.emu.sp = call.stack_pointer  # undo the arg spill; resume the Call*Method caller
+        self.emu.pc = call.return_address
 
     def _real_static_field(self, java_class: object, name: str) -> object:
         backing = getattr(java_class, "backing", None)
@@ -258,7 +275,7 @@ class JNIEnv:
             return JNIEnv._MISS
         return getattr(backing, name)
 
-    def _get_field(self, letter: str, static: bool) -> "int | None":
+    def _get_field(self, letter: str, static: bool) -> int | None:
         field = self.dvm.member(self._arg(2))
         if not isinstance(field, JavaField):
             return self._box(letter, None)
@@ -267,7 +284,7 @@ class JNIEnv:
             if isinstance(method, JavaMethod):
                 return self._box("J", self.dvm.art_method_ptr(method))
         if static:
-            real = self._real_static_field(field.java_class, field.name)
+            real = self._real_static_field(field.getDeclaringClass(), field.name)
             result = real if real is not JNIEnv._MISS else self.handler.get_static_field(field)
         else:
             result = self.handler.get_field(self.dvm.get(self._arg(1)), field)
@@ -276,10 +293,10 @@ class JNIEnv:
     def _set_field(self, letter: str, static: bool) -> None:
         field = self.dvm.member(self._arg(2))
         if not isinstance(field, JavaField):
-            return None
+            return
         if letter in "FD":
             if self.emu.arch.cpu_arch is CpuArch.ARM:
-                source = RegisterArgs32(self.emu, 3)
+                source = RegisterArgs32(cast("AndroidEmulator32", self.emu), 3)
                 value = source.real() if letter == "D" else struct.unpack("<f", struct.pack("<I", source.integer(False)))[0]
             else:
                 value = self._as_real(letter, self.emu.backend.reg_read(Arm64Reg.Q[0]))
@@ -289,13 +306,16 @@ class JNIEnv:
             self.handler.set_static_field(field, value)
         else:
             self.handler.set_field(self.dvm.get(self._arg(1)), field, value)
-        return None
 
     def _new_instance(self, mode: str) -> int:
         dvm_class, method = self.dvm.get(self._arg(1)), self.dvm.member(self._arg(2))
         if not isinstance(dvm_class, JavaClass):
+            self._set_pending_exception("java/lang/NullPointerException", "NewObject called with an invalid class")
             return 0
-        args = self._read_call_args(self.parse_arg_types(method.signature), mode, 3) if isinstance(method, JavaMethod) else []
+        if not isinstance(method, JavaMethod):
+            self._set_pending_exception("java/lang/NoSuchMethodError", "NewObject called with an invalid constructor")
+            return 0
+        args = self._read_call_args(self.parse_arg_types(method.signature), mode, 3)
         backing = dvm_class.backing
         if backing is not None and hasattr(backing, "jni_construct"):
             obj = backing.jni_construct(args)
@@ -304,8 +324,19 @@ class JNIEnv:
 
         return self.dvm.add_local(obj) if obj is not None else 0
 
+    @staticmethod
+    def _jsize(raw: int) -> int:
+        value = raw & 0xFFFFFFFF
+        return value - 0x1_0000_0000 if value & 0x8000_0000 else value
+
+    def _set_pending_exception(self, class_name: str, message: str) -> None:
+        self._pending_exception = self._make_exception(self.dvm.find_class(class_name), message)
+
     def _new_primitive_array(self, letter: str) -> int:
-        length = self._arg(1)
+        length = self._jsize(self._arg(1))
+        if length < 0:
+            self._set_pending_exception("java/lang/NegativeArraySizeException", str(length))
+            return 0
         obj = JavaObject(JavaClass("[" + letter), bytearray(length * self._ELEM_SIZE[letter]))
         ref = self.dvm.add_local(obj)
         self.log.jni_call(f"New{self._PRIM_ARRAY_NAME[letter]}Array", str(length), ref)
@@ -313,8 +344,14 @@ class JNIEnv:
 
     def _get_array_elements(self, _letter: str) -> int:
         obj = self._array(self._arg(1))
-        data = bytes(obj.value) if obj else b""
+        if obj is None or not isinstance(obj.value, (bytes, bytearray)):
+            self._set_pending_exception("java/lang/NullPointerException", "primitive array is null or invalid")
+            return 0
+        data = bytes(obj.value)
         ptr = self.emu.libc.heap.malloc(max(len(data), 1))
+        if not ptr:
+            self._set_pending_exception("java/lang/OutOfMemoryError", "unable to copy primitive array")
+            return 0
         self.emu.mem.write(ptr, data)
         self._array_ptrs[ptr] = self._arg(1)
         if self._arg(2):
@@ -324,42 +361,52 @@ class JNIEnv:
     def _release_array_elements(self, _letter: str) -> None:
         array_ref, ptr, mode = self._arg(1), self._arg(2), self._arg(3)
         obj = self._array(array_ref)
-        if mode != 2 and obj:
+        tracked_ref = self._array_ptrs.get(ptr)
+        if tracked_ref != array_ref or obj is None or not isinstance(obj.value, (bytes, bytearray)):
+            return
+        if mode != 2:
             data = self.emu.mem.read(ptr, len(obj.value))
             if isinstance(obj.value, bytearray):
                 obj.value[:] = data  # in-place, so a caller-shared bytearray sees the mutation
             else:
                 obj.value = bytearray(data)
-        self._array_ptrs.pop(ptr, None)
         if mode != 1:
+            self._array_ptrs.pop(ptr, None)
             self.emu.libc.heap.free(ptr)
-        return None
 
     def _get_array_region(self, letter: str) -> None:
         obj = self._array(self._arg(1))
-        start, count, buf = self._arg(2), self._arg(3), self._arg(4)
-        if obj:
-            elem = self._ELEM_SIZE[letter]
-            self.emu.mem.write(buf, bytes(obj.value[start * elem : (start + count) * elem]))
-        return None
+        start, count, buf = self._jsize(self._arg(2)), self._jsize(self._arg(3)), self._arg(4)
+        if obj is None or not isinstance(obj.value, (bytes, bytearray)):
+            self._set_pending_exception("java/lang/NullPointerException", "primitive array is null or invalid")
+            return
+        elem = self._ELEM_SIZE[letter]
+        if start < 0 or count < 0 or start + count > len(obj.value) // elem:
+            self._set_pending_exception("java/lang/ArrayIndexOutOfBoundsException", f"start={start}, count={count}")
+            return
+        self.emu.mem.write(buf, bytes(obj.value[start * elem : (start + count) * elem]))
 
     def _set_array_region(self, letter: str) -> None:
         obj = self._array(self._arg(1))
-        start, count, buf = self._arg(2), self._arg(3), self._arg(4)
-        if obj:
-            elem = self._ELEM_SIZE[letter]
-            data = self.emu.mem.read(buf, count * elem)
-            begin = start * elem
-            arr = obj.value if isinstance(obj.value, bytearray) else bytearray(obj.value)  # mutate in place if shared
-            if begin + len(data) > len(arr):
-                arr.extend(b"\x00" * (begin + len(data) - len(arr)))
+        start, count, buf = self._jsize(self._arg(2)), self._jsize(self._arg(3)), self._arg(4)
+        if obj is None or not isinstance(obj.value, (bytes, bytearray)):
+            self._set_pending_exception("java/lang/NullPointerException", "primitive array is null or invalid")
+            return
+        elem = self._ELEM_SIZE[letter]
+        if start < 0 or count < 0 or start + count > len(obj.value) // elem:
+            self._set_pending_exception("java/lang/ArrayIndexOutOfBoundsException", f"start={start}, count={count}")
+            return
+        data = self.emu.mem.read(buf, count * elem)
+        begin = start * elem
+        if isinstance(obj.value, bytearray):
+            obj.value[begin : begin + len(data)] = data
+        else:
+            arr = bytearray(obj.value)
             arr[begin : begin + len(data)] = data
-            if arr is not obj.value:
-                obj.value = arr
-        return None
+            obj.value = arr
 
-    def _handlers(self) -> dict[JNIFunction, Callable[[], "int | None"]]:
-        handlers: dict[JNIFunction, Callable[[], "int | None"]] = {
+    def _handlers(self) -> dict[int, Callable[[], int | None]]:
+        handlers: dict[int, Callable[[], int | None]] = {
             JNIFunction.GET_VERSION: self._get_version,
             JNIFunction.DEFINE_CLASS: self._define_class,
             JNIFunction.FIND_CLASS: self._find_class,
@@ -650,7 +697,11 @@ class JNIEnv:
 
     def _make_exception(self, klass: JavaClass, message: str) -> object:
         backing = klass.backing
-        return backing(message) if backing is not None and issubclass(backing, JavaThrowable) else JavaObject(klass, message)
+        if backing is not None and issubclass(backing, JavaThrowable):
+            exception = backing(message)
+            if isinstance(exception, JavaObject):
+                return exception
+        return JavaObject(klass, message)
 
     def take_pending_exception(self) -> object | None:
         exception, self._pending_exception = self._pending_exception, None
@@ -661,14 +712,13 @@ class JNIEnv:
             return 0
         return self.dvm.add_local(self._pending_exception)
 
-    def _exception_describe(self) -> int | None:
+    def _exception_describe(self) -> None:
         if self._pending_exception is not None:
             self.log.jni("ExceptionDescribe: %r", self._pending_exception)
             self._pending_exception = None
 
-    def _exception_clear(self) -> int | None:
+    def _exception_clear(self) -> None:
         self._pending_exception = None
-        return None
 
     def _fatal_error(self) -> int | None:
         raise EmulatorCrashed(f"JNI FatalError: {self._cstr(self._arg(1))}")
@@ -723,13 +773,14 @@ class JNIEnv:
         obj = self.dvm.get(self._arg(1))
         if isinstance(obj, JavaObject):
             return self.dvm.add_local(obj.getClass())
-        return self.dvm.add_local(self.dvm.find_class("java/lang/Object"))
+        self._set_pending_exception("java/lang/NullPointerException", "GetObjectClass called with null")
+        return 0
 
     def _is_instance_of(self) -> int | None:
         obj, clazz = self.dvm.get(self._arg(1)), self.dvm.get(self._arg(2))
         if obj is None:
             return 1
-        return 1 if isinstance(clazz, JavaClass) and clazz.isInstance(obj) else 0
+        return 1 if isinstance(clazz, JavaClass) and isinstance(obj, JavaObject) and clazz.isInstance(obj) else 0
 
     def _get_method_id(self) -> int | None:
         return self._method_id(static=False)
@@ -944,32 +995,32 @@ class JNIEnv:
     def _get_double_field(self) -> int | None:
         return self._get_field("D", static=False)
 
-    def _set_object_field(self) -> int | None:
-        return self._set_field("L", static=False)
+    def _set_object_field(self) -> None:
+        self._set_field("L", static=False)
 
-    def _set_boolean_field(self) -> int | None:
-        return self._set_field("Z", static=False)
+    def _set_boolean_field(self) -> None:
+        self._set_field("Z", static=False)
 
-    def _set_byte_field(self) -> int | None:
-        return self._set_field("B", static=False)
+    def _set_byte_field(self) -> None:
+        self._set_field("B", static=False)
 
-    def _set_char_field(self) -> int | None:
-        return self._set_field("C", static=False)
+    def _set_char_field(self) -> None:
+        self._set_field("C", static=False)
 
-    def _set_short_field(self) -> int | None:
-        return self._set_field("S", static=False)
+    def _set_short_field(self) -> None:
+        self._set_field("S", static=False)
 
-    def _set_int_field(self) -> int | None:
-        return self._set_field("I", static=False)
+    def _set_int_field(self) -> None:
+        self._set_field("I", static=False)
 
-    def _set_long_field(self) -> int | None:
-        return self._set_field("J", static=False)
+    def _set_long_field(self) -> None:
+        self._set_field("J", static=False)
 
-    def _set_float_field(self) -> int | None:
-        return self._set_field("F", static=False)
+    def _set_float_field(self) -> None:
+        self._set_field("F", static=False)
 
-    def _set_double_field(self) -> int | None:
-        return self._set_field("D", static=False)
+    def _set_double_field(self) -> None:
+        self._set_field("D", static=False)
 
     def _get_static_method_id(self) -> int | None:
         return self._method_id(static=True)
@@ -1094,55 +1145,70 @@ class JNIEnv:
     def _get_static_double_field(self) -> int | None:
         return self._get_field("D", static=True)
 
-    def _set_static_object_field(self) -> int | None:
-        return self._set_field("L", static=True)
+    def _set_static_object_field(self) -> None:
+        self._set_field("L", static=True)
 
-    def _set_static_boolean_field(self) -> int | None:
-        return self._set_field("Z", static=True)
+    def _set_static_boolean_field(self) -> None:
+        self._set_field("Z", static=True)
 
-    def _set_static_byte_field(self) -> int | None:
-        return self._set_field("B", static=True)
+    def _set_static_byte_field(self) -> None:
+        self._set_field("B", static=True)
 
-    def _set_static_char_field(self) -> int | None:
-        return self._set_field("C", static=True)
+    def _set_static_char_field(self) -> None:
+        self._set_field("C", static=True)
 
-    def _set_static_short_field(self) -> int | None:
-        return self._set_field("S", static=True)
+    def _set_static_short_field(self) -> None:
+        self._set_field("S", static=True)
 
-    def _set_static_int_field(self) -> int | None:
-        return self._set_field("I", static=True)
+    def _set_static_int_field(self) -> None:
+        self._set_field("I", static=True)
 
-    def _set_static_long_field(self) -> int | None:
-        return self._set_field("J", static=True)
+    def _set_static_long_field(self) -> None:
+        self._set_field("J", static=True)
 
-    def _set_static_float_field(self) -> int | None:
-        return self._set_field("F", static=True)
+    def _set_static_float_field(self) -> None:
+        self._set_field("F", static=True)
 
-    def _set_static_double_field(self) -> int | None:
-        return self._set_field("D", static=True)
+    def _set_static_double_field(self) -> None:
+        self._set_field("D", static=True)
 
     def _new_string(self) -> int | None:
-        ptr, length = self._arg(1), self._arg(2)
-        text = self.emu.mem.read(ptr, length * 2).decode("utf-16-le") if ptr else ""
+        ptr, length = self._arg(1), self._jsize(self._arg(2))
+        if length < 0:
+            self._set_pending_exception("java/lang/IllegalArgumentException", f"negative string length: {length}")
+            return 0
+        text = self.emu.mem.read(ptr, length * 2).decode("utf-16-le", "surrogatepass") if ptr else ""
         return self.dvm.add_local(JavaString(text))
 
     def _get_string_length(self) -> int | None:
-        return len(self._str(self._arg(1)).encode("utf-16-le")) // 2
+        return len(self._str(self._arg(1)).encode("utf-16-le", "surrogatepass")) // 2
 
     def _get_string_chars(self) -> int | None:
-        data = self._str(self._arg(1)).encode("utf-16-le")
+        data = self._str(self._arg(1)).encode("utf-16-le", "surrogatepass")
         ptr = self.emu.libc.heap.malloc(max(len(data), 2))
+        if not ptr:
+            self._set_pending_exception("java/lang/OutOfMemoryError", "unable to copy string")
+            return 0
         self.emu.mem.write(ptr, data)
+        self._string_ptrs.add(ptr)
         if self._arg(2):
             self.emu.mem.write_u8(self._arg(2), 1)
         return ptr
 
     def _release_string_chars(self) -> int | None:
+        ptr = self._arg(2)
+        if ptr in self._string_ptrs:
+            self._string_ptrs.remove(ptr)
+            self.emu.libc.heap.free(ptr)
         return None
 
     def _new_string_utf(self) -> int | None:
         ptr = self._arg(1)
-        text = Mutf8.decode(self.emu.mem.read_cstr_bytes(ptr)) if ptr else ""
+        try:
+            text = Mutf8.decode(self.emu.mem.read_cstr_bytes(ptr)) if ptr else ""
+        except UnicodeDecodeError as error:
+            self._set_pending_exception("java/lang/IllegalArgumentException", str(error))
+            return 0
         ref = self.dvm.add_local(JavaString(text))
         self.log.jni_call("NewStringUTF", repr(text), ref)
         return ref
@@ -1153,29 +1219,44 @@ class JNIEnv:
     def _get_string_utf_chars(self) -> int | None:
         data = Mutf8.encode(self._str(self._arg(1))) + b"\x00"
         ptr = self.emu.libc.heap.malloc(len(data))
+        if not ptr:
+            self._set_pending_exception("java/lang/OutOfMemoryError", "unable to copy modified UTF-8 string")
+            return 0
         self.emu.mem.write(ptr, data)
+        self._string_ptrs.add(ptr)
         if self._arg(2):
             self.emu.mem.write_u8(self._arg(2), 1)
         return ptr
 
     def _release_string_utf_chars(self) -> int | None:
+        ptr = self._arg(2)
+        if ptr in self._string_ptrs:
+            self._string_ptrs.remove(ptr)
+            self.emu.libc.heap.free(ptr)
         return None
 
     def _get_array_length(self) -> int | None:
         obj = self._array(self._arg(1))
-        if not obj:
-            length = 0
+        if obj is None:
+            self._set_pending_exception("java/lang/NullPointerException", "GetArrayLength called with null")
+            return 0
         elif isinstance(obj.value, list):
             length = len(obj.value)
-        else:
-            name = obj.java_class.name
+        elif isinstance(obj.value, (bytes, bytearray)):
+            name = obj.getClass().name
             elem = self._ELEM_SIZE.get(name[1:2], 1) if name.startswith("[") else 1
             length = len(obj.value) // elem
+        else:
+            self._set_pending_exception("java/lang/IllegalArgumentException", "object is not an array")
+            return 0
         self.log.jni_call("GetArrayLength", "", length)
         return length
 
     def _new_object_array(self) -> int | None:
-        length, initial = self._arg(1), self.dvm.get(self._arg(3))
+        length, initial = self._jsize(self._arg(1)), self.dvm.get(self._arg(3))
+        if length < 0:
+            self._set_pending_exception("java/lang/NegativeArraySizeException", str(length))
+            return 0
         element = self.dvm.get(self._arg(2))
         name = element.name if isinstance(element, JavaClass) else "java/lang/Object"
         descriptor = ("[" + name) if name.startswith("[") else ("[L" + name + ";")
@@ -1184,16 +1265,19 @@ class JNIEnv:
         return ref
 
     def _get_object_array_element(self) -> int | None:
-        obj, index = self.dvm.get(self._arg(1)), self._arg(2)
-        if isinstance(obj, JavaObject) and isinstance(obj.value, list) and index < len(obj.value):
+        obj, index = self.dvm.get(self._arg(1)), self._jsize(self._arg(2))
+        if isinstance(obj, JavaObject) and isinstance(obj.value, list) and 0 <= index < len(obj.value):
             element = obj.value[index]
             return self.dvm.add_local(element) if element is not None else 0
+        self._set_pending_exception("java/lang/ArrayIndexOutOfBoundsException", str(index))
         return 0
 
     def _set_object_array_element(self) -> int | None:
-        obj, index, value = self.dvm.get(self._arg(1)), self._arg(2), self.dvm.get(self._arg(3))
-        if isinstance(obj, JavaObject) and isinstance(obj.value, list) and index < len(obj.value):
+        obj, index, value = self.dvm.get(self._arg(1)), self._jsize(self._arg(2)), self.dvm.get(self._arg(3))
+        if isinstance(obj, JavaObject) and isinstance(obj.value, list) and 0 <= index < len(obj.value):
             obj.value[index] = value
+        else:
+            self._set_pending_exception("java/lang/ArrayIndexOutOfBoundsException", str(index))
         return None
 
     def _new_boolean_array(self) -> int | None:
@@ -1244,77 +1328,77 @@ class JNIEnv:
     def _get_double_array_elements(self) -> int | None:
         return self._get_array_elements("D")
 
-    def _release_boolean_array_elements(self) -> int | None:
-        return self._release_array_elements("Z")
+    def _release_boolean_array_elements(self) -> None:
+        self._release_array_elements("Z")
 
-    def _release_byte_array_elements(self) -> int | None:
-        return self._release_array_elements("B")
+    def _release_byte_array_elements(self) -> None:
+        self._release_array_elements("B")
 
-    def _release_char_array_elements(self) -> int | None:
-        return self._release_array_elements("C")
+    def _release_char_array_elements(self) -> None:
+        self._release_array_elements("C")
 
-    def _release_short_array_elements(self) -> int | None:
-        return self._release_array_elements("S")
+    def _release_short_array_elements(self) -> None:
+        self._release_array_elements("S")
 
-    def _release_int_array_elements(self) -> int | None:
-        return self._release_array_elements("I")
+    def _release_int_array_elements(self) -> None:
+        self._release_array_elements("I")
 
-    def _release_long_array_elements(self) -> int | None:
-        return self._release_array_elements("J")
+    def _release_long_array_elements(self) -> None:
+        self._release_array_elements("J")
 
-    def _release_float_array_elements(self) -> int | None:
-        return self._release_array_elements("F")
+    def _release_float_array_elements(self) -> None:
+        self._release_array_elements("F")
 
-    def _release_double_array_elements(self) -> int | None:
-        return self._release_array_elements("D")
+    def _release_double_array_elements(self) -> None:
+        self._release_array_elements("D")
 
-    def _get_boolean_array_region(self) -> int | None:
-        return self._get_array_region("Z")
+    def _get_boolean_array_region(self) -> None:
+        self._get_array_region("Z")
 
-    def _get_byte_array_region(self) -> int | None:
-        return self._get_array_region("B")
+    def _get_byte_array_region(self) -> None:
+        self._get_array_region("B")
 
-    def _get_char_array_region(self) -> int | None:
-        return self._get_array_region("C")
+    def _get_char_array_region(self) -> None:
+        self._get_array_region("C")
 
-    def _get_short_array_region(self) -> int | None:
-        return self._get_array_region("S")
+    def _get_short_array_region(self) -> None:
+        self._get_array_region("S")
 
-    def _get_int_array_region(self) -> int | None:
-        return self._get_array_region("I")
+    def _get_int_array_region(self) -> None:
+        self._get_array_region("I")
 
-    def _get_long_array_region(self) -> int | None:
-        return self._get_array_region("J")
+    def _get_long_array_region(self) -> None:
+        self._get_array_region("J")
 
-    def _get_float_array_region(self) -> int | None:
-        return self._get_array_region("F")
+    def _get_float_array_region(self) -> None:
+        self._get_array_region("F")
 
-    def _get_double_array_region(self) -> int | None:
-        return self._get_array_region("D")
+    def _get_double_array_region(self) -> None:
+        self._get_array_region("D")
 
-    def _set_boolean_array_region(self) -> int | None:
-        return self._set_array_region("Z")
+    def _set_boolean_array_region(self) -> None:
+        self._set_array_region("Z")
 
-    def _set_byte_array_region(self) -> int | None:
-        return self._set_array_region("B")
+    def _set_byte_array_region(self) -> None:
+        self._set_array_region("B")
 
-    def _set_char_array_region(self) -> int | None:
-        return self._set_array_region("C")
+    def _set_char_array_region(self) -> None:
+        self._set_array_region("C")
 
-    def _set_short_array_region(self) -> int | None:
-        return self._set_array_region("S")
+    def _set_short_array_region(self) -> None:
+        self._set_array_region("S")
 
-    def _set_int_array_region(self) -> int | None:
-        return self._set_array_region("I")
+    def _set_int_array_region(self) -> None:
+        self._set_array_region("I")
 
-    def _set_long_array_region(self) -> int | None:
-        return self._set_array_region("J")
+    def _set_long_array_region(self) -> None:
+        self._set_array_region("J")
 
-    def _set_float_array_region(self) -> int | None:
-        return self._set_array_region("F")
+    def _set_float_array_region(self) -> None:
+        self._set_array_region("F")
 
-    def _set_double_array_region(self) -> int | None:
-        return self._set_array_region("D")
+    def _set_double_array_region(self) -> None:
+        self._set_array_region("D")
 
     def _register_natives(self) -> int | None:
         cls, methods_ptr, count = self.dvm.get(self._arg(1)), self._arg(2), self._arg(3)
@@ -1333,6 +1417,10 @@ class JNIEnv:
         return JNIReturnCode.JNI_OK
 
     def _unregister_natives(self) -> int | None:
+        java_class = self.dvm.get(self._arg(1))
+        if not isinstance(java_class, JavaClass):
+            return JNIReturnCode.JNI_ERR
+        self.dvm.unregister_natives(java_class)
         return JNIReturnCode.JNI_OK
 
     def _monitor_enter(self) -> int | None:
@@ -1346,14 +1434,20 @@ class JNIEnv:
         return JNIReturnCode.JNI_OK
 
     def _get_string_region(self) -> int | None:
-        text, start, length, buf = self._str(self._arg(1)), self._arg(2), self._arg(3), self._arg(4)
-        units = text.encode("utf-16-le")
+        text, start, length, buf = self._str(self._arg(1)), self._jsize(self._arg(2)), self._jsize(self._arg(3)), self._arg(4)
+        units = text.encode("utf-16-le", "surrogatepass")
+        if start < 0 or length < 0 or start + length > len(units) // 2:
+            self._set_pending_exception("java/lang/StringIndexOutOfBoundsException", f"start={start}, length={length}")
+            return None
         self.emu.mem.write(buf, units[start * 2 : (start + length) * 2])
         return None
 
     def _get_string_utf_region(self) -> int | None:
-        text, start, length, buf = self._str(self._arg(1)), self._arg(2), self._arg(3), self._arg(4)
-        units = text.encode("utf-16-le")
+        text, start, length, buf = self._str(self._arg(1)), self._jsize(self._arg(2)), self._jsize(self._arg(3)), self._arg(4)
+        units = text.encode("utf-16-le", "surrogatepass")
+        if start < 0 or length < 0 or start + length > len(units) // 2:
+            self._set_pending_exception("java/lang/StringIndexOutOfBoundsException", f"start={start}, length={length}")
+            return None
         region = units[start * 2 : (start + length) * 2].decode("utf-16-le", "surrogatepass")
         self.emu.mem.write(buf, Mutf8.encode(region))
         return None
@@ -1361,14 +1455,14 @@ class JNIEnv:
     def _get_primitive_array_critical(self) -> int | None:
         return self._get_array_elements("B")
 
-    def _release_primitive_array_critical(self) -> int | None:
-        return self._release_array_elements("B")
+    def _release_primitive_array_critical(self) -> None:
+        self._release_array_elements("B")
 
     def _get_string_critical(self) -> int | None:
         return self._get_string_chars()
 
-    def _release_string_critical(self) -> int | None:
-        return None
+    def _release_string_critical(self) -> None:
+        self._release_string_chars()
 
     def _new_weak_global_ref(self) -> int | None:
         obj = self.dvm.get(self._arg(1))

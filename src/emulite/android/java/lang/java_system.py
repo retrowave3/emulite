@@ -10,7 +10,7 @@ from typing import ClassVar
 from emulite.android.java.lang.java_object import JavaObject
 
 
-class JavaSystem(JavaObject):
+class JavaSystem:
     JAVA_NAME: ClassVar[str] = "java/lang/System"
 
     _ELEM_BYTES: ClassVar[dict] = {"Z": 1, "B": 1, "C": 2, "S": 2, "I": 4, "J": 8, "F": 4, "D": 8}
@@ -23,13 +23,14 @@ class JavaSystem(JavaObject):
     @staticmethod
     def arraycopy(src: object, src_pos: int, dest: object, dest_pos: int, length: int) -> None:
         sp, dp, n = int(src_pos), int(dest_pos), int(length)
+        if not isinstance(src, JavaObject) or not isinstance(dest, JavaObject):
+            raise TypeError("System.arraycopy expects Java array objects")
         sv, dv = src.value, dest.value
         if isinstance(sv, list) and isinstance(dv, list):
             dv[dp : dp + n] = sv[sp : sp + n]
         else:  # primitive arrays: copy raw little-endian bytes
             es = JavaSystem._elem_size(dest)
             dv[dp * es : (dp + n) * es] = bytes(sv[sp * es : (sp + n) * es])
-        return None
 
     @staticmethod
     def currentTimeMillis() -> int:
@@ -50,3 +51,6 @@ class JavaSystem(JavaObject):
     @staticmethod
     def gc() -> None:
         return None  # no managed heap to collect
+
+
+JavaObject._REGISTRY[JavaSystem.JAVA_NAME] = JavaSystem

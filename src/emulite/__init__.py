@@ -1,4 +1,5 @@
 from emulite.android.jni.jni_handler import JniHandler
+from emulite.android.jni.types.jni_value import JniValue
 from emulite.android_device import AndroidDevice
 from emulite.android_emulator import AndroidEmulatorBase
 from emulite.android_emulator32 import AndroidEmulator32
@@ -46,6 +47,7 @@ __all__ = [
     "JavaException",
     "JavaExceptionThrown",
     "JniHandler",
+    "JniValue",
     "LogCategory",
     "LogLevel",
     "Logger",

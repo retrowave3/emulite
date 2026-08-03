@@ -38,7 +38,7 @@ class JavaMath(JavaObject):
         # Java Math.round == round half toward +infinity. Computing floor(a + 0.5) is WRONG for
         # 0.49999999999999994 (a + 0.5 rounds up to 1.0), so decide on the fractional part instead:
         # round up only when it is truly >= 0.5. NaN -> 0.
-        if value != value:
+        if math.isnan(value):
             return 0
         floor = math.floor(value)
         return int(floor + 1 if value - floor >= 0.5 else floor)

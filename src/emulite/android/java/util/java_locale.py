@@ -18,11 +18,11 @@ class JavaLocale(JavaObject):
         self._country = country.value if isinstance(country, JavaObject) else str(country)
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaLocale":
+    def jni_construct(cls, args: list[object]) -> JavaLocale:
         return cls(*args[:3])
 
     @staticmethod
-    def getDefault(*_category: object) -> "JavaLocale":
+    def getDefault(*_category: object) -> JavaLocale:
         return JavaLocale("en", "US")  # pinned device locale
 
     def getLanguage(self) -> str:

@@ -64,7 +64,6 @@ class JavaCollections(JavaObject):
     def reverse(collection: object) -> None:
         if hasattr(collection, "_items"):
             collection._items.reverse()
-        return None
 
     @staticmethod
     def sort(collection: object, *comparator: object) -> None:
@@ -74,7 +73,6 @@ class JavaCollections(JavaObject):
             raise NotImplementedError("java.util.Collections.sort: a custom Comparator must be invoked via the JniHandler (the pure model cannot run a guest Comparator)")
         if hasattr(collection, "_items"):
             collection._items.sort(key=functools.cmp_to_key(JavaSupport.natural_compare))
-        return None
 
     @staticmethod
     def emptyIterator() -> object:

@@ -13,7 +13,7 @@ from emulite.android.java.lang.reflect.java_executable import JavaExecutable
 class JavaConstructor(JavaExecutable):
     JAVA_NAME: ClassVar[str] = "java/lang/reflect/Constructor"
 
-    def __init__(self, java_class: "JavaClass", signature: str = "()V"):
+    def __init__(self, java_class: JavaClass, signature: str = "()V"):
         super().__init__(java_class, "<init>", signature, is_static=False)
 
     def getName(self) -> str:

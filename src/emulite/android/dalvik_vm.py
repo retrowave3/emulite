@@ -184,6 +184,11 @@ class DalvikVM:
     def registered_natives(self) -> list[JavaMethod]:
         return [m for m in self._members.values() if isinstance(m, JavaMethod) and m.native_addr]
 
+    def unregister_natives(self, java_class: JavaClass) -> None:
+        for member in self._members.values():
+            if isinstance(member, JavaMethod) and member.getDeclaringClass().name == java_class.name:
+                member.native_addr = 0
+
     def art_method_ptr(self, method: JavaMethod) -> int:
         cached = self._art_methods.get(id(method))
         if cached is not None:

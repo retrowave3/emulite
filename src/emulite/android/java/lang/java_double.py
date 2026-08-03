@@ -4,22 +4,24 @@ https://docs.oracle.com/javase/8/docs/api/java/lang/Double.html
 
 from __future__ import annotations
 
+import math
 import struct
 from typing import ClassVar
 
 from emulite.android.java.lang.java_number import JavaNumber
 from emulite.android.java.lang.java_object import JavaObject
+from emulite.android.java.value_conversion import as_float
 
 
-class JavaDouble(JavaNumber):
+class JavaDouble(JavaNumber[float]):
     JAVA_NAME: ClassVar[str] = "java/lang/Double"
 
     def __init__(self, value: float = 0.0):
         super().__init__(value=float(value))
 
     @staticmethod
-    def valueOf(value: object) -> "JavaDouble":
-        return JavaDouble(float(value.value) if isinstance(value, JavaObject) else float(value))
+    def valueOf(value: object) -> JavaDouble:
+        return JavaDouble(as_float(value))
 
     @staticmethod
     def parseDouble(text: object) -> float:
@@ -29,7 +31,7 @@ class JavaDouble(JavaNumber):
     @staticmethod
     def _bits(value: float) -> int:
         # Double.doubleToLongBits: every NaN collapses to the canonical 0x7ff8000000000000.
-        if value != value:
+        if math.isnan(value):
             return 0x7FF8000000000000
         return struct.unpack("<Q", struct.pack("<d", value))[0]
 
@@ -53,7 +55,7 @@ class JavaDouble(JavaNumber):
 
     def toString(self) -> str:
         value = self.value
-        if value != value:
+        if math.isnan(value):
             return "NaN"
         if value == float("inf"):
             return "Infinity"
@@ -63,7 +65,7 @@ class JavaDouble(JavaNumber):
         text = repr(float(value))
         return text if ("." in text or "e" in text or "E" in text) else text + ".0"
 
-    def equals(self, obj: "JavaObject | None") -> bool:
+    def equals(self, obj: object) -> bool:
         return isinstance(obj, JavaDouble) and self._bits(self.value) == self._bits(obj.value)
 
     def hashCode(self) -> int:

@@ -9,38 +9,38 @@ import os
 from typing import ClassVar
 
 from emulite.android.java.lang.java_object import JavaObject
+from emulite.android.java.value_conversion import as_bytes, as_int, as_text
 
 
-class JavaUUID(JavaObject):
+class JavaUUID(JavaObject[int]):
     JAVA_NAME: ClassVar[str] = "java/util/UUID"
 
     def __init__(self, value: int = 0):
         super().__init__(value=int(value) & ((1 << 128) - 1))
 
     @classmethod
-    def jni_construct(cls, args: list) -> "JavaUUID":
+    def jni_construct(cls, args: list[object]) -> JavaUUID:
         if len(args) >= 2:  # new UUID(long mostSigBits, long leastSigBits)
-            return cls((int(args[0]) << 64) | (int(args[1]) & 0xFFFFFFFFFFFFFFFF))
+            return cls((as_int(args[0]) << 64) | (as_int(args[1]) & 0xFFFFFFFFFFFFFFFF))
         return cls()
 
     @staticmethod
-    def randomUUID() -> "JavaUUID":
+    def randomUUID() -> JavaUUID:
         raw = bytearray(os.urandom(16))
         raw[6] = (raw[6] & 0x0F) | 0x40  # version 4
         raw[8] = (raw[8] & 0x3F) | 0x80  # IETF variant
         return JavaUUID(int.from_bytes(raw, "big"))
 
     @staticmethod
-    def nameUUIDFromBytes(data: object) -> "JavaUUID":
-        payload = data.value if isinstance(data, JavaObject) else data
-        raw = bytearray(hashlib.md5(bytes(payload or b"")).digest())
+    def nameUUIDFromBytes(data: object) -> JavaUUID:
+        raw = bytearray(hashlib.md5(as_bytes(data)).digest())
         raw[6] = (raw[6] & 0x0F) | 0x30  # version 3 (name-based, MD5)
         raw[8] = (raw[8] & 0x3F) | 0x80
         return JavaUUID(int.from_bytes(raw, "big"))
 
     @staticmethod
-    def fromString(text: object) -> "JavaUUID":
-        s = text.value if isinstance(text, JavaObject) else str(text)
+    def fromString(text: object) -> JavaUUID:
+        s = as_text(text)
         return JavaUUID(int(s.replace("-", ""), 16))
 
     def _signed64(self, value: int) -> int:
